@@ -140,7 +140,8 @@ Slack tools live together in
 Slack identifiers are bound through the invocation context, so the model cannot
 select another channel. Dedicated file tools are constrained to `/workspace`.
 Shell access is intentionally unrestricted, with command timeouts, process-group
-cleanup, and bounded output.
+cleanup, and bounded output. The runtime image includes Python 3.12, Node.js 24,
+npm, Git, GitHub CLI, and ripgrep.
 
 For a code change, the agent clones `$GH_REPO`, creates a `codex/*` branch,
 edits and tests the code, commits, pushes, opens a ready pull request, and posts
@@ -186,9 +187,9 @@ cd infra
 AGENT_RUNTIME_ARN="arn:aws:bedrock-agentcore:..." npm run test:e2e
 ```
 
-The command fails unless the model reads the thread, authenticates to the
-configured repository through the GitHub App, uses shell and file tools, posts
-exactly one Slack reply, and finishes with green status.
+The command fails unless the model reads the thread, finds Node.js and npm,
+authenticates plain Git and GitHub CLI through the GitHub App, uses shell and
+file tools, posts exactly one Slack reply, and finishes with green status.
 
 For prompt iteration or multi-turn testing, invoke the test endpoint directly:
 

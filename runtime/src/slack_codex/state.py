@@ -226,7 +226,7 @@ def _configure_git() -> None:
             "config",
             "--global",
             "credential.https://github.com.helper",
-            "github-app-credential",
+            "!/app/.venv/bin/github-app-credential",
         ],
     ]
     for command in commands:

@@ -14,7 +14,7 @@ from slack_codex.models import (
     TestInvocationPayload as AgentCoreTestPayload,
 )
 from slack_codex.settings import Settings
-from slack_codex.state import EventDeduplicator, RuntimeState
+from slack_codex.state import EventDeduplicator, RuntimeState, _configure_git
 from slack_codex.tools.slack_tools import set_thread_status_for_context
 
 
@@ -211,6 +211,25 @@ def test_event_deduplicator_is_bounded() -> None:
     assert events.add("E2") is True
     assert events.add("E3") is True
     assert events.add("E1") is True
+
+
+def test_git_uses_the_installed_github_app_credential_helper(monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    def capture(command: list[str], **_kwargs: Any) -> None:
+        commands.append(command)
+
+    monkeypatch.setattr("slack_codex.state.subprocess.run", capture)
+
+    _configure_git()
+
+    assert commands[-1] == [
+        "git",
+        "config",
+        "--global",
+        "credential.https://github.com.helper",
+        "!/app/.venv/bin/github-app-credential",
+    ]
 
 
 def test_state_rejects_cross_session_reuse(tmp_path: Path) -> None:

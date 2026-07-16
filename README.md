@@ -38,7 +38,8 @@ runbook.
 The setup order matters because the Slack request URL does not exist until CDK
 has deployed the HTTP API:
 
-1. Create the target GitHub repository.
+1. Create the target GitHub repository and push this project to its `main`
+   branch.
 2. Create the GitHub App and install it on that repository.
 3. Create the Slack app from `slack-app-manifest.yaml`. Event Subscriptions are
    intentionally absent from the manifest.
@@ -64,8 +65,8 @@ manifest import.
 5. The runtime serializes turns with one lock, appends the request to in-memory
    history, and calls `Runner.run()` once. The Agents SDK owns the agentic loop.
 6. Slack tools publish the answer and terminal reaction. Runtime fallback
-   handling posts an error and red status if the turn crashes or finishes
-   silently.
+   handling posts an error and red status if the turn crashes, does not reply,
+   or finishes without a valid waiting or terminal status.
 
 ## Runtime model
 
@@ -77,7 +78,8 @@ history list.
 For every turn, the runtime appends the new request, calls `Runner.run()` with
 the complete history, and replaces history with `result.to_input_list()`.
 Concurrent mentions in one thread are serialized. No message or tool state is
-written to a database.
+written to a database. The Agents SDK owns the agentic loop, with a 1,000-turn
+safety limit on each invocation.
 
 The `Agent` is reusable configuration, not a mutable conversation container.
 Conversation state therefore lives in a module-global history list beside the
@@ -105,7 +107,8 @@ trigger. The model then owns waiting and terminal state:
 exclusive. Every follow-up requires a new `@Codex` mention.
 
 The user only sees Slack tool calls, never assistant text or tool output. The
-runtime posts a red fallback reply if the agent crashes or finishes silently.
+runtime posts a red fallback reply if the agent crashes or does not finish with
+both a visible reply and a valid waiting or terminal status.
 Identical Slack messages are idempotent within one turn, protecting users from
 duplicate model tool calls while leaving provider-default parallel tools
 enabled.
@@ -244,13 +247,15 @@ blocked by the repository protection configured in [setup.md](./setup.md).
 
 This is a demo for a trusted Slack workspace. Anyone allowed to mention the app
 can direct an agent with an unrestricted shell and repository credentials.
-The GitHub App should be installed on one repository with only Contents and
-Pull requests read/write access. Harden command execution and identity policy
-before using this design across untrusted users or sensitive repositories.
+The GitHub App should be installed on one repository with Contents and Pull
+requests read/write access plus Actions and Checks read-only access. Harden
+command execution and identity policy before using this design across
+untrusted users or sensitive repositories.
 
 ## Deliberate limits
 
 - State and files last only for the AgentCore microVM lifetime.
+- Each agent invocation has a 1,000-turn safety limit.
 - Every follow-up must mention `@Codex`.
 - Slack thread reads are capped at 100 messages and file transfers at 50 MB.
 - The ingress route is public and authenticated by Slack signatures, not an API

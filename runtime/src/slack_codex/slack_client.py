@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -147,7 +148,7 @@ class SlackClient:
         title: str,
         comment: str | None,
     ) -> dict[str, Any]:
-        size = (await _stat(path)).st_size
+        size = (await asyncio.to_thread(path.stat)).st_size
         reserve = await self._get(
             "files.getUploadURLExternal",
             {"filename": path.name, "length": str(size)},
@@ -161,7 +162,7 @@ class SlackClient:
             )
 
         try:
-            content = await _read_bytes(path)
+            content = await asyncio.to_thread(path.read_bytes)
             response = await self._client.post(
                 str(upload_url),
                 content=content,
@@ -183,15 +184,3 @@ class SlackClient:
             "file_id": file_id,
             "title": complete.get("files", [{}])[0].get("title", title),
         }
-
-
-async def _read_bytes(path: Path) -> bytes:
-    import asyncio
-
-    return await asyncio.to_thread(path.read_bytes)
-
-
-async def _stat(path: Path) -> Any:
-    import asyncio
-
-    return await asyncio.to_thread(path.stat)

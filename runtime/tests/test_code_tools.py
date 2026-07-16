@@ -8,7 +8,15 @@ from typing import Any
 
 from agents.tool_context import ToolContext
 
-from slack_codex.tools.code_tools import read_file, run_bash, run_bash_impl, write_file
+import slack_codex.tools.code_tools as code_tools
+from slack_codex.tools.code_tools import (
+    glob_files,
+    list_directory,
+    read_file,
+    run_bash,
+    run_bash_impl,
+    write_file,
+)
 
 
 async def call_tool(tool: Any, arguments: dict[str, Any]) -> Any:
@@ -95,6 +103,31 @@ async def test_dedicated_file_tools_reject_workspace_traversal(
 
     assert "inside" in written["error"]
     assert "inside" in read["error"]
+
+
+async def test_file_listing_only_reports_truncation_when_results_are_omitted(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setattr(code_tools, "MAX_RESULTS", 2)
+    (tmp_path / "a.txt").touch()
+    (tmp_path / "b.txt").touch()
+
+    exact_list = await call_tool(list_directory, {"path": "."})
+    exact_glob = await call_tool(glob_files, {"pattern": "*.txt", "path": "."})
+
+    assert exact_list["truncated"] is False
+    assert exact_glob["truncated"] is False
+
+    (tmp_path / "c.txt").touch()
+    truncated_list = await call_tool(list_directory, {"path": "."})
+    truncated_glob = await call_tool(glob_files, {"pattern": "*.txt", "path": "."})
+
+    assert truncated_list["truncated"] is True
+    assert len(truncated_list["entries"]) == 2
+    assert truncated_glob["truncated"] is True
+    assert len(truncated_glob["matches"]) == 2
 
 
 async def test_timeout_terminates_background_processes(monkeypatch, tmp_path: Path) -> None:

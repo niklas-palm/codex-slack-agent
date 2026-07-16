@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import logging
 import os
@@ -31,6 +32,28 @@ from slack_codex.web_fetch import WebFetcher
 
 logger = logging.getLogger(__name__)
 MAX_PROCESSED_EVENTS = 1024
+SUPPORTED_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+MAX_IMAGE_BYTES = 3_750_000
+
+
+def _image_data_url(content: bytes, mimetype: str) -> str:
+    """Return a validated image as a data URL accepted by the Responses API."""
+    signatures = {
+        "image/gif": (b"GIF87a", b"GIF89a"),
+        "image/jpeg": (b"\xff\xd8\xff",),
+        "image/png": (b"\x89PNG\r\n\x1a\n",),
+        "image/webp": (b"RIFF",),
+    }
+    if mimetype not in signatures:
+        raise ValueError(f"unsupported image type: {mimetype}")
+    if not content or len(content) > MAX_IMAGE_BYTES:
+        raise ValueError(f"image must be between 1 and {MAX_IMAGE_BYTES} bytes")
+    if not any(content.startswith(signature) for signature in signatures[mimetype]):
+        raise ValueError(f"file content does not match {mimetype}")
+    if mimetype == "image/webp" and content[8:12] != b"WEBP":
+        raise ValueError("file content does not match image/webp")
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mimetype};base64,{encoded}"
 
 
 class RuntimeHooks(RunHooks[InvocationContext]):
@@ -249,6 +272,54 @@ class RuntimeState:
                 "slack": client.snapshot(checkpoint),
             }
 
+    async def _input_for_slack_turn(
+        self, payload: InvocationPayload, slack_client: SlackClient
+    ) -> dict[str, Any]:
+        """Build Responses API input from images attached to the triggering message."""
+        messages = await slack_client.get_thread(
+            payload.slack.channel_id, payload.slack.thread_ts, limit=100
+        )
+        trigger = next(
+            (
+                message
+                for message in messages
+                if message.get("ts") == payload.slack.trigger_message_ts
+            ),
+            None,
+        )
+        content: list[dict[str, Any]] = [{"type": "input_text", "text": payload.prompt}]
+        if trigger is None:
+            return {"role": "user", "content": payload.prompt}
+
+        for attachment in trigger.get("files", []):
+            mimetype = str(attachment.get("mimetype", "")).lower()
+            size = attachment.get("size")
+            file_id = attachment.get("id")
+            if (
+                mimetype not in SUPPORTED_IMAGE_MIME_TYPES
+                or not isinstance(size, int)
+                or not 0 < size <= MAX_IMAGE_BYTES
+                or not isinstance(file_id, str)
+                or not file_id
+            ):
+                continue
+            info = await slack_client.file_info(file_id)
+            url = info.get("url_private_download") or info.get("url_private")
+            if not isinstance(url, str) or not url:
+                continue
+            image = await slack_client.download(url, max_bytes=MAX_IMAGE_BYTES)
+            content.append(
+                {
+                    "type": "input_image",
+                    "detail": "auto",
+                    "image_url": _image_data_url(image, mimetype),
+                }
+            )
+
+        if len(content) == 1:
+            return {"role": "user", "content": payload.prompt}
+        return {"role": "user", "content": content}
+
     async def _run_locked(
         self,
         payload: InvocationPayload,
@@ -264,10 +335,7 @@ class RuntimeState:
         working = await set_thread_status_for_context(context, "working")
         if working.get("error"):
             logger.warning("Failed to set working status: %s", working["error"])
-        user_input: TResponseInputItem = {
-            "role": "user",
-            "content": payload.prompt,
-        }
+        user_input: TResponseInputItem = await self._input_for_slack_turn(payload, slack_client)  # type: ignore[assignment]
         self.history.append(user_input)
         try:
             result = await self.runner.run(

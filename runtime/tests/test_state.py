@@ -62,6 +62,19 @@ class FakeSlackClient:
         self.posts: list[tuple[Any, ...]] = []
         self.added: list[tuple[Any, ...]] = []
         self.removed: list[tuple[Any, ...]] = []
+        self.messages: list[dict[str, Any]] = []
+        self.files: dict[str, dict[str, Any]] = {}
+
+    async def get_thread(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        return self.messages
+
+    async def file_info(self, file_id: str) -> dict[str, Any]:
+        return self.files[file_id]
+
+    async def download(self, url: str, *, max_bytes: int) -> bytes:
+        content = self.files[url.removeprefix("stub://")]["content"]
+        assert len(content) <= max_bytes
+        return content
 
     async def post_message(self, *args: Any) -> str:
         self.posts.append(args)
@@ -234,6 +247,60 @@ async def test_state_reuses_agent_and_complete_history(tmp_path: Path) -> None:
         lambda: [*tmp_path.rglob("*.db"), *tmp_path.rglob("*.sqlite*")]
     )
     assert not database_files
+
+
+async def test_state_adds_triggering_image_to_responses_input(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+    client = state.slack_client
+    assert isinstance(client, FakeSlackClient)
+    jpeg = b"\xff\xd8\xff" + b"image-data"
+    client.messages = [
+        {
+            "ts": "2.0",
+            "files": [
+                {"id": "F1", "mimetype": "image/jpeg", "size": len(jpeg)},
+                {"id": "F2", "mimetype": "text/plain", "size": 5},
+            ],
+        }
+    ]
+    client.files["F1"] = {
+        "url_private_download": "stub://F1",
+        "content": jpeg,
+    }
+
+    await state.run(payload("E1", "describe this image"))
+
+    user_input = runner.calls[0][1][0]
+    assert user_input["role"] == "user"
+    assert user_input["content"][0] == {
+        "type": "input_text",
+        "text": "describe this image",
+    }
+    image = user_input["content"][1]
+    assert image["type"] == "input_image"
+    assert image["detail"] == "auto"
+    assert image["image_url"].startswith("data:image/jpeg;base64,")
+
+
+async def test_state_ignores_oversized_and_non_image_attachments(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+    client = state.slack_client
+    assert isinstance(client, FakeSlackClient)
+    client.messages = [
+        {
+            "ts": "2.0",
+            "files": [
+                {"id": "F1", "mimetype": "image/png", "size": 3_750_001},
+                {"id": "F2", "mimetype": "text/plain", "size": 10},
+            ],
+        }
+    ]
+
+    await state.run(payload("E1", "read attachments"))
+
+    assert runner.calls[0][1][0] == {"role": "user", "content": "read attachments"}
 
 
 async def test_parent_message_selects_model_for_the_runtime(tmp_path: Path) -> None:

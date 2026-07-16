@@ -25,6 +25,9 @@ def test_agent_instructions_allow_search_and_fetching_search_result_urls() -> No
     assert "`web-search___WebSearch` is a normal research tool" in instructions
     assert "Use it freely whenever" in instructions
     assert "URL returned by search can be passed directly to `fetch_webpage`" in instructions
+    assert "199 characters or fewer" in instructions
+    assert "1 through 25 results" in instructions
+    assert "Treat snippets as\nleads rather than evidence" in instructions
 
 
 def test_build_agent_registers_bedrock_client_before_agent(

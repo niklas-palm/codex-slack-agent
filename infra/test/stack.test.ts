@@ -64,7 +64,15 @@ describe("SlackCodexStack", () => {
     });
   });
 
-  it("grants only the expected invocation and inference actions", () => {
+  it("attaches AWS managed ReadOnlyAccess to the AgentCore runtime role", () => {
+    stackTemplate.hasResourceProperties("AWS::IAM::Role", {
+      ManagedPolicyArns: [
+        { "Fn::Join": ["", ["arn:", { Ref: "AWS::Partition" }, ":iam::aws:policy/ReadOnlyAccess"]] },
+      ],
+    });
+  });
+
+  it("grants the expected runtime invocation and inference actions", () => {
     const json = JSON.stringify(stackTemplate.toJSON());
     expect(json).toContain("bedrock-agentcore:InvokeAgentRuntime");
     expect(json).toContain("/runtime-endpoint/*");

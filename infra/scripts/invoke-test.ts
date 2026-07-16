@@ -14,6 +14,8 @@ interface Arguments {
   user: string;
   attachments: string[];
   check: boolean;
+  requiredTools: string[];
+  expectedText: string[];
 }
 
 interface TestResult {
@@ -36,7 +38,8 @@ interface TestResult {
 
 const USAGE =
   "Usage: npm run invoke:test -- --runtime-arn ARN --session NAME " +
-  '--prompt "request" [--attach PATH] [--user USER] [--check]';
+  '--prompt "request" [--attach PATH] [--user USER] [--check] ' +
+  "[--require-tool TOOL] [--expect-text TEXT]";
 
 function valueAfter(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -72,6 +75,8 @@ function parseArguments(argv: string[]): Arguments {
     user,
     attachments: valuesAfter(argv, "--attach"),
     check,
+    requiredTools: valuesAfter(argv, "--require-tool"),
+    expectedText: valuesAfter(argv, "--expect-text"),
   };
 }
 
@@ -141,6 +146,28 @@ function validateSmokeResult(result: TestResult): void {
   }
 }
 
+function validateRequestedAssertions(result: TestResult, args: Arguments): void {
+  if (result.status !== "completed") {
+    throw new Error(`Test invocation status was ${result.status ?? "missing"}`);
+  }
+  if (!result.replied || result.waiting || result.thread_status !== "done") {
+    throw new Error("Test invocation did not finish with a successful Slack reply");
+  }
+  for (const toolName of args.requiredTools) {
+    if ((result.tool_calls?.[toolName] ?? 0) < 1) {
+      throw new Error(
+        `Expected tool ${toolName} to be called, received ${result.tool_calls?.[toolName] ?? 0}`,
+      );
+    }
+  }
+  const slackText = result.slack?.posts?.map((post) => post.text ?? "").join("\n") ?? "";
+  for (const expectedText of args.expectedText) {
+    if (!slackText.includes(expectedText)) {
+      throw new Error(`Expected Slack reply text to contain: ${expectedText}`);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -183,6 +210,10 @@ async function main(): Promise<void> {
   if (args.check) {
     validateSmokeResult(result);
     console.log("AgentCore smoke checks passed.");
+  }
+  if (args.requiredTools.length > 0 || args.expectedText.length > 0) {
+    validateRequestedAssertions(result, args);
+    console.log("AgentCore requested checks passed.");
   }
 }
 

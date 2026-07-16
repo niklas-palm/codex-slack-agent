@@ -4,6 +4,9 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+import slack_codex.app as app_module
 from slack_codex.app import invoke, set_state_for_testing
 from slack_codex.state import EventDeduplicator
 
@@ -51,10 +54,67 @@ class BlockingState:
         }
 
 
+class LifecycleState:
+    def __init__(self, startup_error: Exception | None = None) -> None:
+        self.startup_error = startup_error
+        self.started = False
+        self.closed = False
+
+    async def start(self) -> None:
+        self.started = True
+        if self.startup_error is not None:
+            raise self.startup_error
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 async def _finish(state: BlockingState) -> None:
     state.release.set()
     await asyncio.sleep(0)
     await asyncio.sleep(0)
+
+
+async def test_lifespan_starts_and_closes_runtime_state(monkeypatch) -> None:
+    state = LifecycleState()
+    monkeypatch.setattr(
+        app_module.Settings,
+        "from_env",
+        classmethod(lambda _cls: object()),
+    )
+    monkeypatch.setattr(
+        app_module.RuntimeState,
+        "create",
+        classmethod(lambda _cls, _settings: state),
+    )
+
+    async with app_module.lifespan(app_module.app):
+        assert state.started is True
+        assert app_module.get_state() is state
+
+    assert state.closed is True
+    with pytest.raises(RuntimeError, match="not been initialized"):
+        app_module.get_state()
+
+
+async def test_lifespan_fails_fast_and_releases_partial_state(monkeypatch) -> None:
+    state = LifecycleState(startup_error=RuntimeError("gateway unavailable"))
+    monkeypatch.setattr(
+        app_module.Settings,
+        "from_env",
+        classmethod(lambda _cls: object()),
+    )
+    monkeypatch.setattr(
+        app_module.RuntimeState,
+        "create",
+        classmethod(lambda _cls, _settings: state),
+    )
+
+    with pytest.raises(RuntimeError, match="gateway unavailable"):
+        async with app_module.lifespan(app_module.app):
+            raise AssertionError("unreachable")
+
+    assert state.closed is True
 
 
 async def test_invoke_returns_accepted_before_background_turn_finishes() -> None:

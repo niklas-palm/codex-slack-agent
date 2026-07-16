@@ -18,6 +18,14 @@ def test_agent_instructions_require_slack_mrkdwn_for_all_visible_messages() -> N
     assert "do not use standard Markdown link syntax" in instructions
 
 
+def test_agent_instructions_allow_search_and_fetching_search_result_urls() -> None:
+    instructions = agent_module.load_instructions()
+
+    assert "`web-search___WebSearch` is a normal research tool" in instructions
+    assert "Use it freely whenever" in instructions
+    assert "URL returned by search can be passed directly to `fetch_webpage`" in instructions
+
+
 def test_build_agent_registers_bedrock_client_before_agent(
     monkeypatch,
     tmp_path: Path,
@@ -26,6 +34,8 @@ def test_build_agent_registers_bedrock_client_before_agent(
     provider = object()
     client = object()
     built_agent = object()
+    web_search_server = object()
+    web_fetcher = object()
 
     monkeypatch.setattr(
         agent_module,
@@ -59,6 +69,16 @@ def test_build_agent_registers_bedrock_client_before_agent(
         "Agent",
         lambda **kwargs: calls.append(("agent", kwargs)) or built_agent,
     )
+    monkeypatch.setattr(
+        agent_module,
+        "AgentCoreGatewaySigV4Auth",
+        lambda region: calls.append(("gateway_auth", region)) or "gateway-auth",
+    )
+    monkeypatch.setattr(
+        agent_module,
+        "MCPServerStreamableHttp",
+        lambda params, **kwargs: calls.append(("mcp", (params, kwargs))) or web_search_server,
+    )
 
     settings = Settings(
         aws_region="us-east-1",
@@ -70,10 +90,14 @@ def test_build_agent_registers_bedrock_client_before_agent(
         workspace=tmp_path,
     )
 
-    result_client, result_agent = agent_module.build_agent(settings)
+    result_client, result_agent, result_mcp = agent_module.build_agent(  # type: ignore[arg-type]
+        settings,
+        web_fetcher,
+    )
 
     assert result_client is client
     assert result_agent is built_agent
+    assert result_mcp is web_search_server
     assert calls[0] == ("bedrock", {"region": "us-east-1"})
     assert calls[1] == ("client", {"provider": provider})
     assert calls[2] == (
@@ -84,9 +108,59 @@ def test_build_agent_registers_bedrock_client_before_agent(
         ("default_api", "responses"),
         ("tracing_disabled", True),
     ]
-    agent_config = calls[5][1]
+    assert calls[5] == ("gateway_auth", "us-east-1")
+    assert calls[6] == (
+        "mcp",
+        (
+            {
+                "url": "https://gateway.example/mcp",
+                "auth": "gateway-auth",
+            },
+            {
+                "cache_tools_list": True,
+                "name": "web-search",
+            },
+        ),
+    )
+    agent_config = calls[7][1]
     assert agent_config["model"] == "openai.gpt-5.6-terra"
     assert agent_config["tool_use_behavior"] is agent_module.slack_tool_result_behavior
+    assert agent_config["mcp_servers"] == [web_search_server]
+    assert any(tool.name == "fetch_webpage" for tool in agent_config["tools"])
+
+
+def test_build_agent_does_not_duplicate_gateway_mcp_path(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+    settings = Settings(
+        aws_region="us-east-1",
+        bedrock_region="us-east-1",
+        model_id="openai.gpt-5.6-terra",
+        slack_bot_token_secret_arn="slack",
+        github_app_credentials_secret_arn="github",
+        github_repository="owner/repository",
+        workspace=tmp_path,
+        web_search_gateway_url="https://gateway.example/mcp",
+    )
+
+    monkeypatch.setattr(agent_module, "AsyncOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(agent_module, "bedrock", lambda **_kwargs: object())
+    monkeypatch.setattr(agent_module, "set_default_openai_client", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(agent_module, "set_default_openai_api", lambda _value: None)
+    monkeypatch.setattr(agent_module, "set_tracing_disabled", lambda _value: None)
+    monkeypatch.setattr(agent_module, "AgentCoreGatewaySigV4Auth", lambda _region: object())
+    monkeypatch.setattr(agent_module, "Agent", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        agent_module,
+        "MCPServerStreamableHttp",
+        lambda params, **_kwargs: captured.setdefault("params", params) or object(),
+    )
+
+    agent_module.build_agent(settings, object())  # type: ignore[arg-type]
+
+    assert captured["params"]["url"] == "https://gateway.example/mcp"
 
 
 def test_terminal_slack_status_ends_the_agent_turn() -> None:

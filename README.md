@@ -12,6 +12,9 @@ flowchart LR
     Lambda --> Runtime["AgentCore Runtime"]
     Runtime --> SDK["OpenAI Agents SDK"]
     SDK --> Bedrock["Bedrock"]
+    SDK --> Gateway["AgentCore Web Search Gateway"]
+    Gateway --> WebSearch["Managed Web Search"]
+    SDK --> Fetch["Local HTTPS Fetcher"]
     Lambda -. "eyes / failure fallback" .-> Slack
     Runtime -. "thread tools" .-> Slack
     Runtime --> GitHub["GitHub App / repository"]
@@ -25,6 +28,8 @@ authorizer, external conversation store, or custom repository API. It uses:
 - Slack request signing to authenticate the public events route.
 - An ARM64 AgentCore container with an unrestricted shell and focused file tools.
 - OpenAI's Agents SDK with the Bedrock provider and AWS credential chain.
+- An IAM-protected AgentCore Gateway for managed current-web search and a
+  bounded local HTTPS fetcher for reading public server-rendered pages.
 - A GitHub App installation token for repository access and bot identity.
 - Repository-scoped GitHub OIDC credentials for deployment after merges to
   `main`.
@@ -143,6 +148,16 @@ Shell access is intentionally unrestricted, with command timeouts, process-group
 cleanup, and bounded output. The runtime image includes Python 3.12, Node.js 24,
 npm, Git, GitHub CLI, and ripgrep.
 
+For current external information, the agent uses
+`web-search___WebSearch` through an AgentCore Gateway. When snippets are not
+enough, it can call `fetch_webpage` for a public HTTPS URL. The fetcher blocks
+localhost, private/reserved IPs, credentials, non-443 ports, and unsafe
+redirects; uses Trafilatura to return cleaned Markdown; accepts only HTML,
+XHTML, or plain text; and caps downloads at 5 MB. Search and fetched page
+content are untrusted reference material. Slack answers based on fetched pages
+cite their returned title and final URL. Browser rendering is deliberately not
+part of this version, so JavaScript-only pages report no readable content.
+
 For a code change, the agent clones `$GH_REPO`, creates a `codex/*` branch,
 edits and tests the code, commits, pushes, opens a ready pull request, and posts
 the URL in Slack. It can inspect pull-request checks and failed GitHub Actions
@@ -191,6 +206,18 @@ The command fails unless the model reads the thread, finds Node.js and npm,
 authenticates plain Git and GitHub CLI through the GitHub App, uses shell and
 file tools, posts exactly one Slack reply, and finishes with green status.
 
+Run the deployed web capability check after the stack has produced the Web
+Search Gateway:
+
+```bash
+cd infra
+AGENT_RUNTIME_ARN="arn:aws:bedrock-agentcore:..." npm run test:e2e:web
+```
+
+It requires the model to call `web-search___WebSearch`, fetch the official AWS
+documentation, state the documented 200-character query limit, cite the AWS
+page, and finish green.
+
 For prompt iteration or multi-turn testing, invoke the test endpoint directly:
 
 ```bash
@@ -213,6 +240,19 @@ Test mode is not a second implementation. It uses the deployed container,
 Bedrock model, Agents SDK loop, code tools, in-memory history, and filesystem;
 only the Slack client is replaced by an in-memory implementation.
 
+For local prompt iteration with real Bedrock and Gateway credentials but
+without Slack or GitHub secrets:
+
+```bash
+cd runtime
+AWS_PROFILE=slack-agent \
+WEB_SEARCH_GATEWAY_URL="https://..." \
+uv run slack-codex-local-test \
+  --prompt "Search for the AgentCore Web Search query limit, fetch the official AWS page, then reply with the result."
+```
+
+The command prints the stub Slack transcript and test-mode tool-call counts.
+
 ## Development checks
 
 ```bash
@@ -232,6 +272,15 @@ npm run synth -- \
 
 `npm test` and `pytest` are offline unit/contract tests. `npm run test:e2e` is
 the intentionally small live test and incurs AgentCore and model usage.
+`npm run test:e2e:web` is the corresponding deployed web-search and fetch
+check. The 24-site public extraction suite is opt-in:
+
+```bash
+cd runtime
+RUN_LIVE_WEB_FETCH=1 uv run pytest tests/test_web_fetch_live.py -s
+```
+
+It does not save page bodies and requires at least 20 readable extractions.
 
 ## CI and deployment
 
@@ -259,6 +308,9 @@ untrusted users or sensitive repositories.
 - Each agent invocation has a 1,000-turn safety limit.
 - Every follow-up must mention `@Codex`.
 - Slack thread reads are capped at 100 messages and file transfers at 50 MB.
+- Web fetching is HTTPS-only public server-rendered text; it does not execute
+  page JavaScript or retain cookies, raw HTML, response headers, or page
+  bodies.
 - The ingress route is public and authenticated by Slack signatures, not an API
   Gateway authorizer.
 - The shell is unrestricted by design. This sample assumes a trusted workspace

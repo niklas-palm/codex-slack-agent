@@ -22,6 +22,7 @@ interface TestResult {
   replied?: boolean;
   waiting?: boolean;
   command_failures?: number;
+  tool_calls?: Record<string, number>;
   slack?: {
     posts?: Array<{
       text?: string;
@@ -102,6 +103,21 @@ function validateSmokeResult(result: TestResult): void {
     throw new Error(
       `Smoke test observed ${result.command_failures ?? "unknown"} failed shell commands`,
     );
+  }
+  const expectedToolCalls: Record<string, number> = {
+    read_thread: 1,
+    run_bash: 1,
+    write_file: 1,
+    read_file: 1,
+    reply_to_thread: 1,
+    set_thread_status: 1,
+  };
+  for (const [name, count] of Object.entries(expectedToolCalls)) {
+    if (result.tool_calls?.[name] !== count) {
+      throw new Error(
+        `Smoke test expected ${name}=${count}, received ${result.tool_calls?.[name] ?? 0}`,
+      );
+    }
   }
   if (result.slack?.posts?.length !== 1) {
     throw new Error(

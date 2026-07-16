@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from agents.tool_context import ToolContext
 
-from slack_codex.tools.code_tools import read_file, run_bash_impl, write_file
+from slack_codex.tools.code_tools import read_file, run_bash, run_bash_impl, write_file
 
 
 async def call_tool(tool: Any, arguments: dict[str, Any]) -> Any:
@@ -44,6 +45,23 @@ async def test_run_bash_preserves_configured_path(monkeypatch, tmp_path: Path) -
 
     assert result["exit_code"] == 0
     assert result["stdout"] == "available"
+
+
+async def test_run_bash_tracks_failures(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
+    invocation = SimpleNamespace(command_failures=0)
+    arguments = json.dumps({"command": "exit 7", "timeout_seconds": 120})
+    context = ToolContext(
+        invocation,
+        tool_name=run_bash.name,
+        tool_call_id="call-1",
+        tool_arguments=arguments,
+    )
+
+    result = await run_bash.on_invoke_tool(context, arguments)
+
+    assert result["exit_code"] == 7
+    assert invocation.command_failures == 1
 
 
 async def test_run_bash_times_out_and_kills_process_group(monkeypatch, tmp_path: Path) -> None:

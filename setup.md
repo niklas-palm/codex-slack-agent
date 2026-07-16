@@ -261,6 +261,7 @@ Expected result:
 - `replied` is `true`
 - `thread_status` is `done`
 - no shell command failed
+- each required agent tool was called exactly once
 - reactions move from eyes to yellow to green
 - exactly one reply appears in `slack.posts`
 - the GitHub App can read the configured repository

@@ -2,7 +2,7 @@
 
 This runbook deploys the Slack Codex Agent to AWS, connects it to Slack, and verifies the installation. Complete the sections in order.
 
-Defaults: `us-east-1` and model `openai.gpt-5.6-luna`. The stack is fixed to `us-east-1` because the managed Web Search integration is available there.
+The default model is `openai.gpt-5.6-luna`; the stack is fixed to `us-east-1` because the managed Web Search integration is available there.
 
 ## 1. Prerequisites
 
@@ -85,12 +85,11 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}"
 ```
 
-Set the repository and read its exact OIDC subject from GitHub:
+Set the repository and the standard main-branch OIDC subject:
 
 ```bash
 export GITHUB_REPOSITORY=OWNER/REPOSITORY
-export GITHUB_OIDC_SUBJECT="$(gh api "repos/${GITHUB_REPOSITORY}/actions/oidc/customization/sub" \
-  --jq '.sub_claim_prefix + ":ref:refs/heads/main"')"
+export GITHUB_OIDC_SUBJECT="repo:${GITHUB_REPOSITORY}:ref:refs/heads/main"
 ```
 
 Deploy:

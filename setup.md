@@ -260,8 +260,11 @@ Expected result:
 - `status` is `completed`
 - `replied` is `true`
 - `thread_status` is `done`
+- no shell command failed
+- each required agent tool was called exactly once
 - reactions move from eyes to yellow to green
 - exactly one reply appears in `slack.posts`
+- the GitHub App can read the configured repository
 - the command prints `AgentCore smoke checks passed.`
 
 For an interactive follow-up test, call `npm run invoke:test` twice with the
@@ -365,23 +368,53 @@ gh variable set AWS_OIDC_SUBJECT \
 ```
 
 The committed `.github/workflows/deploy.yml` workflow runs all runtime and
-infrastructure tests, configures short-lived AWS credentials through OIDC,
-builds the ARM64 image, and deploys CDK after every push to `main`. It can also
-be started manually:
+infrastructure tests on pull requests. After a merge to `main`, it reruns the
+tests, configures short-lived AWS credentials through OIDC, builds the ARM64
+image, and deploys CDK. Establish the `Test` check with one successful run:
 
 ```bash
 gh workflow run deploy.yml --repo OWNER/REPOSITORY --ref main
 gh run watch --repo OWNER/REPOSITORY
 ```
 
-No AWS access keys are stored in GitHub. The workflow grants only
-`contents: read` and `id-token: write`; all third-party actions are pinned to
-commit SHAs.
+Then protect `main`:
 
-Before allowing other contributors to write to the repository, protect `main`
-against direct and force pushes and require pull requests plus suitable
-pull-request checks. Branch protection and pull-request CI are intentionally
-not managed by this sample.
+```bash
+gh api --method PUT \
+  repos/OWNER/REPOSITORY/branches/main/protection \
+  --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["Test"]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0,
+    "require_last_push_approval": false
+  },
+  "restrictions": null,
+  "required_linear_history": false,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": true
+}
+JSON
+```
+
+This requires every change to arrive through a pull request and pass the
+current `Test` check. It requires no approval so a single maintainer can merge
+their own demo changes. Set `required_approving_review_count` to `1` when
+another reviewer is available. GitHub requires a public repository or a plan
+that supports branch protection for private repositories.
+
+No AWS access keys are stored in GitHub. Only the deploy job receives
+`id-token: write`; all third-party actions are pinned to commit SHAs.
 
 ## 11. Rotate or remove
 

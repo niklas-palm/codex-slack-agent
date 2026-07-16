@@ -21,8 +21,12 @@ interface TestResult {
   thread_status?: string;
   replied?: boolean;
   waiting?: boolean;
+  command_failures?: number;
+  tool_calls?: Record<string, number>;
   slack?: {
-    posts?: unknown[];
+    posts?: Array<{
+      text?: string;
+    }>;
     reactions?: Array<{
       action?: string;
       emoji?: string;
@@ -95,10 +99,33 @@ function validateSmokeResult(result: TestResult): void {
   if (!result.replied || result.waiting || result.thread_status !== "done") {
     throw new Error("Smoke test did not finish with one successful Slack reply");
   }
+  if (result.command_failures !== 0) {
+    throw new Error(
+      `Smoke test observed ${result.command_failures ?? "unknown"} failed shell commands`,
+    );
+  }
+  const expectedToolCalls: Record<string, number> = {
+    read_thread: 1,
+    run_bash: 1,
+    write_file: 1,
+    read_file: 1,
+    reply_to_thread: 1,
+    set_thread_status: 1,
+  };
+  for (const [name, count] of Object.entries(expectedToolCalls)) {
+    if (result.tool_calls?.[name] !== count) {
+      throw new Error(
+        `Smoke test expected ${name}=${count}, received ${result.tool_calls?.[name] ?? 0}`,
+      );
+    }
+  }
   if (result.slack?.posts?.length !== 1) {
     throw new Error(
       `Smoke test expected one Slack reply, received ${result.slack?.posts?.length ?? 0}`,
     );
+  }
+  if (result.slack.posts[0]?.text !== "AgentCore smoke test passed") {
+    throw new Error("Smoke test did not post the expected success message");
   }
   const terminalReaction = result.slack.reactions
     ?.filter(
@@ -152,10 +179,10 @@ async function main(): Promise<void> {
     throw new Error("AgentCore returned an empty response");
   }
   const result = JSON.parse(body) as TestResult;
+  console.log(JSON.stringify(result, null, 2));
   if (args.check) {
     validateSmokeResult(result);
   }
-  console.log(JSON.stringify(result, null, 2));
   if (args.check) {
     console.log("AgentCore smoke checks passed.");
   }

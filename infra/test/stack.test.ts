@@ -67,6 +67,7 @@ describe("SlackCodexStack", () => {
   it("grants only the expected invocation and inference actions", () => {
     const json = JSON.stringify(stackTemplate.toJSON());
     expect(json).toContain("bedrock-agentcore:InvokeAgentRuntime");
+    expect(json).toContain("/runtime-endpoint/*");
     expect(json).toContain("bedrock-mantle:CreateInference");
     expect(json).not.toContain("events:PutEvents");
     expect(json).not.toContain("sqs:");

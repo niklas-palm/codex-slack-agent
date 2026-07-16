@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { App } from "aws-cdk-lib";
+import { App, CfnOutput } from "aws-cdk-lib";
 
+import { GithubActionsDeploy } from "../lib/github-actions-deploy";
 import { SlackCodexStack } from "../lib/slack-codex-stack";
 
 const app = new App();
@@ -20,7 +21,7 @@ if (
   );
 }
 
-new SlackCodexStack(app, "SlackCodex", {
+const stack = new SlackCodexStack(app, "SlackCodex", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
@@ -29,4 +30,13 @@ new SlackCodexStack(app, "SlackCodex", {
   modelId:
     app.node.tryGetContext("bedrockModelId") ?? "openai.gpt-5.6-terra",
   githubRepository,
+});
+
+const githubActions = new GithubActionsDeploy(
+  stack,
+  "GithubActionsDeploy",
+  { githubRepository },
+);
+new CfnOutput(stack, "GithubActionsDeployRoleArn", {
+  value: githubActions.role.roleArn,
 });

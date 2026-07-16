@@ -15,6 +15,8 @@ flowchart LR
     Lambda -. "eyes / failure fallback" .-> Slack
     Runtime -. "thread tools" .-> Slack
     Runtime --> GitHub["GitHub App / repository"]
+    GitHubActions["GitHub Actions"] --> OIDC["AWS OIDC"]
+    OIDC --> CDK["CDK deploy"]
 ```
 
 The sample deliberately has no EventBridge, queue, database, API Gateway
@@ -24,6 +26,8 @@ authorizer, external conversation store, or custom repository API. It uses:
 - An ARM64 AgentCore container with an unrestricted shell and focused file tools.
 - OpenAI's Agents SDK with the Bedrock provider and AWS credential chain.
 - A GitHub App installation token for repository access and bot identity.
+- Repository-scoped GitHub OIDC credentials for deployment after merges to
+  `main`.
 - CDK for every AWS resource.
 
 See [setup.md](./setup.md) for the complete deployment and app configuration
@@ -42,6 +46,8 @@ has deployed the HTTP API:
 5. Verify AgentCore with stubbed Slack.
 6. Enable Slack Event Subscriptions, verify the deployed URL, and add
    `app_mention`.
+7. Set the deploy-role repository variable and let `.github/workflows/deploy.yml`
+   deploy future changes to `main`.
 
 Follow [setup.md](./setup.md) rather than enabling Event Subscriptions during
 manifest import.
@@ -148,6 +154,8 @@ approves, merges, dispatches workflows, or deploys.
 |   |-- lib/                    AgentCore and ingress stack
 |   |-- scripts/                Synchronous AgentCore test client
 |   `-- test/                   Lambda and CDK assertions
+|-- .github/workflows/
+|   `-- deploy.yml              OIDC-authenticated CDK deployment
 |-- runtime/
 |   |-- src/slack_codex/
 |   |   |-- tools/              Code and Slack tools
@@ -235,5 +243,7 @@ before using this design across untrusted users or sensitive repositories.
   Gateway authorizer.
 - The shell is unrestricted by design. This sample assumes a trusted workspace
   and a narrowly installed GitHub App.
-- Branch protection and GitHub Actions deployment through AWS OIDC are planned
-  hardening steps, not resources deployed by this sample.
+- GitHub Actions can assume only the repository/main-scoped deployment role,
+  which can in turn assume only the regional CDK bootstrap roles.
+- Branch protection is not managed by this sample. Protect `main` before
+  allowing broader write access to the repository.

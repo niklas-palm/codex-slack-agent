@@ -157,7 +157,10 @@ export class SlackCodexStack extends Stack {
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: ["bedrock-agentcore:InvokeAgentRuntime"],
-        resources: [agentRuntime.attrAgentRuntimeArn],
+        resources: [
+          agentRuntime.attrAgentRuntimeArn,
+          `${agentRuntime.attrAgentRuntimeArn}/runtime-endpoint/*`,
+        ],
       }),
     );
 

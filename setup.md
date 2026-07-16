@@ -17,6 +17,7 @@ Install:
 - Node.js 22 and npm
 - Docker Desktop with ARM64 build support
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- GitHub CLI (`gh`), authenticated to the repository owner
 - `curl` and `jq`
 
 The target account must be able to use `openai.gpt-5.6-terra` through Bedrock
@@ -33,6 +34,27 @@ export AWS_PROFILE=slack-agent
 export AWS_REGION=us-east-1
 aws sts get-caller-identity
 ```
+
+The stack imports the account's shared GitHub OIDC provider. Confirm it exists:
+
+```bash
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+GITHUB_OIDC_PROVIDER_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
+
+aws iam get-open-id-connect-provider \
+  --open-id-connect-provider-arn "$GITHUB_OIDC_PROVIDER_ARN"
+```
+
+If it is absent, create one shared provider:
+
+```bash
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com
+```
+
+The stack deliberately does not own this account-wide provider because other
+repositories may use it.
 
 ## 2. Create the GitHub App
 
@@ -132,6 +154,7 @@ Record these outputs:
 - `SlackSigningSecretArn`
 - `SlackBotTokenArn`
 - `GithubAppCredentialsArn`
+- `GithubActionsDeployRoleArn`
 
 CDK creates generated placeholder secret values so credentials never appear in
 source or CloudFormation parameters. Replace all three placeholders before the
@@ -152,6 +175,7 @@ export SLACK_EVENTS_URL="$(stack_output SlackEventsUrl)"
 export SLACK_SIGNING_SECRET_ARN="$(stack_output SlackSigningSecretArn)"
 export SLACK_BOT_TOKEN_ARN="$(stack_output SlackBotTokenArn)"
 export GITHUB_APP_CREDENTIALS_ARN="$(stack_output GithubAppCredentialsArn)"
+export GITHUB_ACTIONS_DEPLOY_ROLE_ARN="$(stack_output GithubActionsDeployRoleArn)"
 ```
 
 ## 6. Populate Secrets Manager
@@ -307,20 +331,38 @@ curl -i -X POST "$SLACK_EVENTS_URL" -d '{}'
 That 401 is expected. A successful Slack verification requires Slack's signed
 request and the matching Signing Secret.
 
-## 10. Future CI/CD hardening
+## 10. Enable GitHub Actions deployment
 
-This sample does not currently create branch protection or a deployment
-workflow. A production follow-up should:
+The stack creates a deploy role whose OIDC trust is restricted to this
+repository's `main` branch. The role can only assume the four regional CDK
+bootstrap roles; it does not receive `AdministratorAccess` directly.
 
-1. Protect `main` against direct and force pushes.
-2. Require pull requests and the relevant CI checks before merge.
-3. Create a narrowly scoped AWS IAM role trusted through GitHub's OIDC
-   provider for this repository and deployment workflow.
-4. Deploy from GitHub Actions after a protected merge, using
-   `id-token: write` and no long-lived AWS access keys.
-5. Keep the GitHub App's Actions and Checks permissions read-only so the agent
-   can inspect `gh pr checks` and failed `gh run` logs without controlling
-   workflows.
+Set the role ARN as a repository Actions variable:
+
+```bash
+gh variable set AWS_DEPLOY_ROLE_ARN \
+  --repo OWNER/REPOSITORY \
+  --body "$GITHUB_ACTIONS_DEPLOY_ROLE_ARN"
+```
+
+The committed `.github/workflows/deploy.yml` workflow runs all runtime and
+infrastructure tests, configures short-lived AWS credentials through OIDC,
+builds the ARM64 image, and deploys CDK after every push to `main`. It can also
+be started manually:
+
+```bash
+gh workflow run deploy.yml --repo OWNER/REPOSITORY --ref main
+gh run watch --repo OWNER/REPOSITORY
+```
+
+No AWS access keys are stored in GitHub. The workflow grants only
+`contents: read` and `id-token: write`; all third-party actions are pinned to
+commit SHAs.
+
+Before allowing other contributors to write to the repository, protect `main`
+against direct and force pushes and require pull requests plus suitable
+pull-request checks. Branch protection and pull-request CI are intentionally
+not managed by this sample.
 
 ## 11. Rotate or remove
 

@@ -15,7 +15,7 @@ from agents.mcp import MCPServer
 from agents.tool import Tool
 from openai import AsyncOpenAI
 
-from slack_codex.agent import build_agent
+from slack_codex.agent import build_agent, model_for_parent_prompt
 from slack_codex.github_app import GitHubAppCredentials
 from slack_codex.models import (
     InvocationContext,
@@ -254,6 +254,8 @@ class RuntimeState:
             slack_client=slack_client,
             workspace=self.settings.workspace,
         )
+        if payload.slack.trigger_message_ts == payload.slack.thread_ts:
+            self.agent = self.agent.clone(model=model_for_parent_prompt(payload.prompt))
         working = await set_thread_status_for_context(context, "working")
         if working.get("error"):
             logger.warning("Failed to set working status: %s", working["error"])

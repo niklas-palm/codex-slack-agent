@@ -74,6 +74,16 @@ class FakeSlackClient:
         self.added.append(args)
 
 
+class FakeAgent:
+    def __init__(self, model_id: str = "initial") -> None:
+        self.model_id = model_id
+        self.clone_calls: list[str] = []
+
+    def clone(self, *, model: str) -> FakeAgent:
+        self.clone_calls.append(model)
+        return FakeAgent(model)
+
+
 class FakeWebFetcher:
     def __init__(self) -> None:
         self.closed = False
@@ -109,7 +119,7 @@ class FakeOpenAIClient:
         self.closed = True
 
 
-def payload(event_id: str, prompt: str) -> InvocationPayload:
+def payload(event_id: str, prompt: str, *, is_parent_message: bool = False) -> InvocationPayload:
     return InvocationPayload.model_validate(
         {
             "source": "slack",
@@ -119,7 +129,7 @@ def payload(event_id: str, prompt: str) -> InvocationPayload:
                 "team_id": "T1",
                 "channel_id": "C1",
                 "thread_ts": "1.0",
-                "trigger_message_ts": "2.0",
+                "trigger_message_ts": "1.0" if is_parent_message else "2.0",
                 "slack_user_id": "U1",
             },
         }
@@ -130,7 +140,7 @@ def make_state(tmp_path: Path, runner: FakeRunner) -> RuntimeState:
     settings = Settings(
         aws_region="us-east-1",
         bedrock_region="us-east-1",
-        model_id="openai.gpt-5.6-terra",
+        model_id="openai.gpt-5.6-luna",
         slack_bot_token_secret_arn="slack",
         github_app_credentials_secret_arn="github",
         github_repository="owner/repo",
@@ -139,7 +149,7 @@ def make_state(tmp_path: Path, runner: FakeRunner) -> RuntimeState:
     return RuntimeState(
         settings=settings,
         openai_client=object(),  # type: ignore[arg-type]
-        agent=object(),
+        agent=FakeAgent(),
         slack_client=FakeSlackClient(),  # type: ignore[arg-type]
         runner=runner,
     )
@@ -224,6 +234,23 @@ async def test_state_reuses_agent_and_complete_history(tmp_path: Path) -> None:
         lambda: [*tmp_path.rglob("*.db"), *tmp_path.rglob("*.sqlite*")]
     )
     assert not database_files
+
+
+async def test_parent_message_selects_model_for_the_runtime(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+    agent = FakeAgent()
+    state.agent = agent  # type: ignore[assignment]
+
+    await state.run(payload("E1", "please investigate #terra, thanks", is_parent_message=True))
+    await state.run(payload("E2", "follow up"))
+
+    assert agent.clone_calls == ["openai.gpt-5.6-terra"]
+    assert state.agent.model_id == "openai.gpt-5.6-terra"
+    assert [call[0].model_id for call in runner.calls] == [
+        "openai.gpt-5.6-terra",
+        "openai.gpt-5.6-terra",
+    ]
 
 
 async def test_state_serializes_concurrent_turns(tmp_path: Path) -> None:
@@ -394,9 +421,12 @@ async def test_agentcore_test_mode_persists_stub_thread_and_history(
     assert first_result["tool_calls"] == {}
     assert first_result["slack"]["posts"] == [{"text": "reply-1", "ts": "2.000000"}]
     assert second_result["slack"]["posts"] == [{"text": "reply-2", "ts": "4.000000"}]
-    assert [
-        message["text"] for message in second_result["slack"]["thread"]
-    ] == ["first", "reply-1", "second", "reply-2"]
+    assert [message["text"] for message in second_result["slack"]["thread"]] == [
+        "first",
+        "reply-1",
+        "second",
+        "reply-2",
+    ]
     assert runner.calls[1][1] == [
         {"role": "user", "content": "first"},
         {"role": "assistant", "content": "answer-1"},

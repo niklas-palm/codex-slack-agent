@@ -30,7 +30,7 @@ class Settings:
         return cls(
             aws_region=aws_region,
             bedrock_region=os.getenv("BEDROCK_REGION", aws_region),
-            model_id=os.getenv("BEDROCK_MODEL_ID", "openai.gpt-5.6-terra"),
+            model_id=os.getenv("BEDROCK_MODEL_ID", "openai.gpt-5.6-luna"),
             slack_bot_token_secret_arn=_required("SLACK_BOT_TOKEN_SECRET_ARN"),
             github_app_credentials_secret_arn=_required(
                 "GITHUB_APP_CREDENTIALS_SECRET_ARN"

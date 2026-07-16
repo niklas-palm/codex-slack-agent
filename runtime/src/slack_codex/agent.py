@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from agents import (
@@ -20,6 +21,19 @@ from slack_codex.models import InvocationContext
 from slack_codex.settings import Settings
 from slack_codex.tools import ALL_TOOLS
 from slack_codex.web_fetch import WebFetcher, build_web_tools
+
+MODEL_IDS = {
+    "luna": "openai.gpt-5.6-luna",
+    "terra": "openai.gpt-5.6-terra",
+    "sol": "openai.gpt-5.6-sol",
+}
+_MODEL_DIRECTIVE = re.compile(r"(?<!\w)#(terra|sol)\b", re.IGNORECASE)
+
+
+def model_for_parent_prompt(prompt: str) -> str:
+    """Choose a model from an optional parent-message directive."""
+    match = _MODEL_DIRECTIVE.search(prompt)
+    return MODEL_IDS[match.group(1).lower()] if match else MODEL_IDS["luna"]
 
 
 def load_instructions() -> str:

@@ -171,6 +171,11 @@ class RuntimeState:
             except BaseException as exc:
                 errors.append(exc)
                 logger.exception("Failed to close web fetcher")
+        try:
+            await self.slack_client.close()
+        except BaseException as exc:
+            errors.append(exc)
+            logger.exception("Failed to close Slack client")
 
         close_client = getattr(self.openai_client, "close", None)
         if callable(close_client):

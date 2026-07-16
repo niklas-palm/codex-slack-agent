@@ -38,16 +38,17 @@ runbook.
 The setup order matters because the Slack request URL does not exist until CDK
 has deployed the HTTP API:
 
-1. Create the GitHub App and install it on one repository.
-2. Create the Slack app from `slack-app-manifest.yaml`. Event Subscriptions are
+1. Create the target GitHub repository.
+2. Create the GitHub App and install it on that repository.
+3. Create the Slack app from `slack-app-manifest.yaml`. Event Subscriptions are
    intentionally absent from the manifest.
-3. Run the local unit tests, then deploy the CDK stack.
-4. Populate the three Secrets Manager resources created by CDK.
-5. Verify AgentCore with stubbed Slack.
-6. Enable Slack Event Subscriptions, verify the deployed URL, and add
+4. Run the local unit tests, then deploy the CDK stack.
+5. Populate the three Secrets Manager resources created by CDK.
+6. Verify AgentCore with stubbed Slack.
+7. Enable Slack Event Subscriptions, verify the deployed URL, and add
    `app_mention`.
-7. Set the deploy-role repository variable and let `.github/workflows/deploy.yml`
-   deploy future changes to `main`.
+8. Set the deployment repository variables and let
+   `.github/workflows/deploy.yml` deploy future changes to `main`.
 
 Follow [setup.md](./setup.md) rather than enabling Event Subscriptions during
 manifest import.
@@ -220,7 +221,9 @@ cd ../infra
 npm ci
 npm run build
 npm test
-npm run synth -- -c githubRepository=OWNER/REPOSITORY
+npm run synth -- \
+  -c githubRepository=OWNER/REPOSITORY \
+  -c githubOidcSubject='repo:OWNER/REPOSITORY:ref:refs/heads/main'
 ```
 
 `npm test` and `pytest` are offline unit/contract tests. `npm run test:e2e` is

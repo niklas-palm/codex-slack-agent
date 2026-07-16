@@ -135,7 +135,7 @@ export class SlackCodexStack extends Stack {
     const slackEvents = new NodejsFunction(this, "SlackEvents", {
       entry: path.join(repositoryRoot, "infra", "functions", "slack-events.ts"),
       handler: "handler",
-      runtime: Runtime.NODEJS_22_X,
+      runtime: Runtime.NODEJS_24_X,
       architecture: Architecture.ARM_64,
       memorySize: 256,
       timeout: Duration.seconds(15),

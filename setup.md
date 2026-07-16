@@ -14,11 +14,15 @@ enable Event Subscriptions.
 Install:
 
 - AWS CLI v2
-- Node.js 22 and npm
+- Node.js 24 and npm
 - Docker Desktop with ARM64 build support
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
 - GitHub CLI (`gh`), authenticated to the repository owner
 - `curl` and `jq`
+
+Create the target GitHub repository before continuing. The first deployment
+reads that repository's exact OIDC subject from GitHub, and the GitHub App in
+step 2 must be installed on it. CDK does not create the repository.
 
 The target account must be able to use `openai.gpt-5.6-terra` through Bedrock
 in `us-east-1`.
@@ -140,12 +144,23 @@ npx cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}"
 Deploy with the repository the App was installed on:
 
 ```bash
+export GITHUB_REPOSITORY=OWNER/REPOSITORY
+export GITHUB_OIDC_SUBJECT="$(
+  gh api "repos/${GITHUB_REPOSITORY}/actions/oidc/customization/sub" \
+    --jq '.sub_claim_prefix + ":ref:refs/heads/main"'
+)"
+
 npm run deploy -- \
   --require-approval never \
-  -c githubRepository=OWNER/REPOSITORY \
+  -c githubRepository="$GITHUB_REPOSITORY" \
+  -c githubOidcSubject="$GITHUB_OIDC_SUBJECT" \
   -c bedrockRegion=us-east-1 \
   -c bedrockModelId=openai.gpt-5.6-terra
 ```
+
+Read the subject from GitHub rather than constructing it. Depending on the
+repository, GitHub may include immutable owner and repository IDs in the
+prefix.
 
 Record these outputs:
 
@@ -337,12 +352,16 @@ The stack creates a deploy role whose OIDC trust is restricted to this
 repository's `main` branch. The role can only assume the four regional CDK
 bootstrap roles; it does not receive `AdministratorAccess` directly.
 
-Set the role ARN as a repository Actions variable:
+Set the role ARN and exact GitHub subject as repository Actions variables:
 
 ```bash
 gh variable set AWS_DEPLOY_ROLE_ARN \
   --repo OWNER/REPOSITORY \
   --body "$GITHUB_ACTIONS_DEPLOY_ROLE_ARN"
+
+gh variable set AWS_OIDC_SUBJECT \
+  --repo OWNER/REPOSITORY \
+  --body "$GITHUB_OIDC_SUBJECT"
 ```
 
 The committed `.github/workflows/deploy.yml` workflow runs all runtime and

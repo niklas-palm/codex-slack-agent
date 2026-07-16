@@ -8,7 +8,7 @@ import {
 import { Construct } from "constructs";
 
 export interface GithubActionsDeployProps {
-  githubRepository: string;
+  githubOidcSubject: string;
 }
 
 export class GithubActionsDeploy extends Construct {
@@ -43,8 +43,7 @@ export class GithubActionsDeploy extends Construct {
         {
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-            "token.actions.githubusercontent.com:sub":
-              `repo:${props.githubRepository}:ref:refs/heads/main`,
+            "token.actions.githubusercontent.com:sub": props.githubOidcSubject,
           },
         },
         "sts:AssumeRoleWithWebIdentity",

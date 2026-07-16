@@ -57,10 +57,10 @@ describe("SlackCodexStack", () => {
     });
   });
 
-  it("uses an ARM64 Node.js 22 ingress Lambda", () => {
+  it("uses an ARM64 Node.js 24 ingress Lambda", () => {
     stackTemplate.hasResourceProperties("AWS::Lambda::Function", {
       Architectures: ["arm64"],
-      Runtime: "nodejs22.x",
+      Runtime: "nodejs24.x",
     });
   });
 

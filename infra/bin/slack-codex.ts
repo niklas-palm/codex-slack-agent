@@ -10,6 +10,7 @@ const region =
   process.env.CDK_DEFAULT_REGION ??
   "us-east-1";
 const githubRepository = app.node.tryGetContext("githubRepository");
+const githubOidcSubject = app.node.tryGetContext("githubOidcSubject");
 
 if (
   typeof githubRepository !== "string" ||
@@ -18,6 +19,15 @@ if (
 ) {
   throw new Error(
     "Pass -c githubRepository=OWNER/REPOSITORY with the GitHub App repository",
+  );
+}
+if (
+  typeof githubOidcSubject !== "string" ||
+  !githubOidcSubject.startsWith("repo:") ||
+  !githubOidcSubject.endsWith(":ref:refs/heads/main")
+) {
+  throw new Error(
+    "Pass the exact main-branch subject with -c githubOidcSubject=SUBJECT",
   );
 }
 
@@ -35,7 +45,7 @@ const stack = new SlackCodexStack(app, "SlackCodex", {
 const githubActions = new GithubActionsDeploy(
   stack,
   "GithubActionsDeploy",
-  { githubRepository },
+  { githubOidcSubject },
 );
 new CfnOutput(stack, "GithubActionsDeployRoleArn", {
   value: githubActions.role.roleArn,

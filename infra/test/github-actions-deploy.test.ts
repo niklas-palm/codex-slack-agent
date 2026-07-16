@@ -9,7 +9,8 @@ function synthesizeTemplate(): Template {
     env: { account: "123456789012", region: "us-east-1" },
   });
   new GithubActionsDeploy(stack, "GithubActionsDeploy", {
-    githubRepository: "owner/repository",
+    githubOidcSubject:
+      "repo:owner@123/repository@456:ref:refs/heads/main",
   });
   return Template.fromStack(stack);
 }
@@ -27,7 +28,7 @@ describe("GithubActionsDeploy", () => {
               StringEquals: {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                 "token.actions.githubusercontent.com:sub":
-                  "repo:owner/repository:ref:refs/heads/main",
+                  "repo:owner@123/repository@456:ref:refs/heads/main",
               },
             },
             Principal: {

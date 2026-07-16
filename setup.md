@@ -260,8 +260,10 @@ Expected result:
 - `status` is `completed`
 - `replied` is `true`
 - `thread_status` is `done`
+- no shell command failed
 - reactions move from eyes to yellow to green
 - exactly one reply appears in `slack.posts`
+- the GitHub App can read the configured repository
 - the command prints `AgentCore smoke checks passed.`
 
 For an interactive follow-up test, call `npm run invoke:test` twice with the

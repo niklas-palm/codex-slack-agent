@@ -264,6 +264,7 @@ async def test_agentcore_test_mode_persists_stub_thread_and_history(
 
     assert first_result["status"] == "completed"
     assert first_result["thread_status"] == "done"
+    assert first_result["command_failures"] == 0
     assert first_result["slack"]["posts"] == [{"text": "reply-1", "ts": "2.000000"}]
     assert second_result["slack"]["posts"] == [{"text": "reply-2", "ts": "4.000000"}]
     assert [

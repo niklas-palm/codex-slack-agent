@@ -9,8 +9,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from agents import function_tool
+from agents import RunContextWrapper, function_tool
 
+from slack_codex.models import InvocationContext
 from slack_codex.workspace import (
     MAX_TEXT_BYTES,
     read_text_file,
@@ -75,7 +76,7 @@ async def run_bash_impl(command: str, timeout_seconds: int = 120) -> dict[str, A
     workspace.mkdir(parents=True, exist_ok=True)
     process = await asyncio.create_subprocess_exec(
         "bash",
-        "-lc",
+        "-c",
         command,
         cwd=workspace,
         env=os.environ.copy(),
@@ -118,13 +119,20 @@ async def run_bash_impl(command: str, timeout_seconds: int = 120) -> dict[str, A
 
 
 @function_tool
-async def run_bash(command: str, timeout_seconds: int = 120) -> dict[str, Any]:
+async def run_bash(
+    run_context: RunContextWrapper[InvocationContext],
+    command: str,
+    timeout_seconds: int = 120,
+) -> dict[str, Any]:
     """Run a shell command in /workspace.
 
     Use for git, GitHub CLI, package management, builds, tests, and chained
     shell operations. The timeout is capped at 900 seconds.
     """
-    return await run_bash_impl(command, timeout_seconds)
+    result = await run_bash_impl(command, timeout_seconds)
+    if result["exit_code"] != 0:
+        run_context.context.command_failures += 1
+    return result
 
 
 @function_tool

@@ -160,6 +160,7 @@ class RuntimeState:
                 "thread_status": context.status,
                 "replied": context.replied,
                 "waiting": context.waiting,
+                "command_failures": context.command_failures,
                 "slack": client.snapshot(checkpoint),
             }
 

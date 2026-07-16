@@ -61,3 +61,4 @@ class InvocationContext:
     message_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     posted_messages: dict[tuple[str, str], str] = field(default_factory=dict)
     tool_calls: dict[str, int] = field(default_factory=dict)
+    command_failures: int = 0

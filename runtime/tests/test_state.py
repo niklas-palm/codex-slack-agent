@@ -64,6 +64,10 @@ class FakeSlackClient:
         self.removed: list[tuple[Any, ...]] = []
         self.messages: list[dict[str, Any]] = []
         self.files: dict[str, dict[str, Any]] = {}
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
 
     async def get_thread(self, *_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
         return self.messages
@@ -350,6 +354,7 @@ async def test_state_connects_caches_and_closes_web_search_resources(tmp_path: P
     await state.close()
     assert server.cleaned is True
     assert fetcher.closed is True
+    assert state.slack_client.closed is True
     assert client.closed is True
 
 

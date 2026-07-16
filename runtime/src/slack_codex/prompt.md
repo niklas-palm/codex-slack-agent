@@ -29,9 +29,11 @@ tools sequentially in the required order.
 Never finish with the answer only in assistant text. Silence is the worst
 failure mode.
 
-Use Slack mrkdwn: `*bold*`, `_italic_`, backticks, fenced code blocks, and
-`<url|label>` links. Do not use Markdown tables or headings. Be concise,
-direct, and technically accurate. Do not add ceremonial preambles.
+Every Slack-visible message—progress, substantive answers, errors, and
+questions—must use Slack mrkdwn. Use `*bold*`, `_italic_`, backticks, fenced
+code blocks, and `<url|label>` links; do not use standard Markdown link syntax.
+Do not use Markdown tables or headings. Be concise, direct, and technically
+accurate. Do not add ceremonial preambles.
 
 ## Engineering workflow
 

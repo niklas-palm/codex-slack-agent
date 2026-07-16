@@ -10,6 +10,14 @@ import slack_codex.agent as agent_module
 from slack_codex.settings import Settings
 
 
+def test_agent_instructions_require_slack_mrkdwn_for_all_visible_messages() -> None:
+    instructions = agent_module.load_instructions()
+
+    assert "Every Slack-visible message" in instructions
+    assert "must use Slack mrkdwn" in instructions
+    assert "do not use standard Markdown link syntax" in instructions
+
+
 def test_build_agent_registers_bedrock_client_before_agent(
     monkeypatch,
     tmp_path: Path,

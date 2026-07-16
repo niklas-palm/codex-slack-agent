@@ -47,8 +47,8 @@ has deployed the HTTP API:
 6. Verify AgentCore with stubbed Slack.
 7. Enable Slack Event Subscriptions, verify the deployed URL, and add
    `app_mention`.
-8. Set the deployment repository variables and let
-   `.github/workflows/deploy.yml` deploy future changes to `main`.
+8. Set the deployment repository variables and protect `main`. Pull requests
+   run tests; merges deploy through `.github/workflows/deploy.yml`.
 
 Follow [setup.md](./setup.md) rather than enabling Event Subscriptions during
 manifest import.
@@ -229,6 +229,17 @@ npm run synth -- \
 `npm test` and `pytest` are offline unit/contract tests. `npm run test:e2e` is
 the intentionally small live test and incurs AgentCore and model usage.
 
+## CI and deployment
+
+Pull requests targeting `main` run the `Test` job without AWS credentials.
+Protected `main` requires that check and a pull request. After merge, the same
+commit is tested again and the `Deploy` job assumes the repository-scoped AWS
+role through OIDC.
+
+The deploy job is the only job with `id-token: write`. Production deployments
+are serialized, and direct pushes, force pushes, and branch deletion are
+blocked by the repository protection configured in [setup.md](./setup.md).
+
 ## Trust boundary
 
 This is a demo for a trusted Slack workspace. Anyone allowed to mention the app
@@ -248,5 +259,5 @@ before using this design across untrusted users or sensitive repositories.
   and a narrowly installed GitHub App.
 - GitHub Actions can assume only the repository/main-scoped deployment role,
   which can in turn assume only the regional CDK bootstrap roles.
-- Branch protection is not managed by this sample. Protect `main` before
-  allowing broader write access to the repository.
+- Branch protection is configured in GitHub after the first successful
+  workflow run; it is not an AWS CDK resource.

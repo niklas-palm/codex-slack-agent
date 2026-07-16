@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import logging
 import os
 import signal
+import time
 from pathlib import Path
 from typing import Any
 
-from agents import function_tool
+from agents import RunContextWrapper, function_tool
 
+from slack_codex.models import InvocationContext
 from slack_codex.workspace import (
     MAX_TEXT_BYTES,
     read_text_file,
@@ -17,6 +21,7 @@ from slack_codex.workspace import (
 MAX_COMMAND_OUTPUT = 64_000
 MAX_COMMAND_TIMEOUT = 900
 MAX_RESULTS = 500
+logger = logging.getLogger(__name__)
 
 
 def _workspace() -> Path:
@@ -59,11 +64,19 @@ async def _terminate_process_group(
 
 async def run_bash_impl(command: str, timeout_seconds: int = 120) -> dict[str, Any]:
     timeout_seconds = max(1, min(timeout_seconds, MAX_COMMAND_TIMEOUT))
+    fingerprint = hashlib.sha256(command.encode("utf-8")).hexdigest()[:12]
+    started = time.monotonic()
+    logger.info(
+        "run_bash started fingerprint=%s command_bytes=%d timeout_seconds=%d",
+        fingerprint,
+        len(command.encode("utf-8")),
+        timeout_seconds,
+    )
     workspace = _workspace()
     workspace.mkdir(parents=True, exist_ok=True)
     process = await asyncio.create_subprocess_exec(
         "bash",
-        "-lc",
+        "-c",
         command,
         cwd=workspace,
         env=os.environ.copy(),
@@ -86,6 +99,16 @@ async def run_bash_impl(command: str, timeout_seconds: int = 120) -> dict[str, A
 
     stdout_text, stdout_truncated = _truncate(stdout)
     stderr_text, stderr_truncated = _truncate(stderr)
+    logger.info(
+        "run_bash completed fingerprint=%s duration_seconds=%.3f exit_code=%s "
+        "stdout_bytes=%d stderr_bytes=%d timed_out=%s",
+        fingerprint,
+        time.monotonic() - started,
+        process.returncode,
+        len(stdout),
+        len(stderr),
+        timed_out,
+    )
     return {
         "exit_code": process.returncode,
         "stdout": stdout_text,
@@ -96,13 +119,20 @@ async def run_bash_impl(command: str, timeout_seconds: int = 120) -> dict[str, A
 
 
 @function_tool
-async def run_bash(command: str, timeout_seconds: int = 120) -> dict[str, Any]:
+async def run_bash(
+    run_context: RunContextWrapper[InvocationContext],
+    command: str,
+    timeout_seconds: int = 120,
+) -> dict[str, Any]:
     """Run a shell command in /workspace.
 
     Use for git, GitHub CLI, package management, builds, tests, and chained
     shell operations. The timeout is capped at 900 seconds.
     """
-    return await run_bash_impl(command, timeout_seconds)
+    result = await run_bash_impl(command, timeout_seconds)
+    if result["exit_code"] != 0:
+        run_context.context.command_failures += 1
+    return result
 
 
 @function_tool

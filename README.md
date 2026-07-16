@@ -6,16 +6,16 @@ A Slack bot that runs a code agent in Amazon Bedrock AgentCore. Mention `@Codex`
 
 ```mermaid
 flowchart TD
-    U[Slack user] -->|@Codex in a thread| S[Slack Events API]
-    S -->|signed HTTP event| L[API Gateway + Lambda]
-    L -->|validate, acknowledge, invoke| R[AgentCore runtime]
-    R --> A[OpenAI Agents SDK]
-    A --> T[Tools]
-    T --> G[GitHub App]
-    T --> W[Workspace and shell]
-    T --> B[Slack Web API]
-    A --> Q[AgentCore Web Search gateway]
-    Q --> H[Public HTTPS pages]
+    U["Slack user"] -->|"@Codex in a thread"| S["Slack Events API"]
+    S -->|"signed HTTP event"| L["API Gateway + Lambda"]
+    L -->|"validate, acknowledge, invoke"| R["AgentCore runtime"]
+    R --> A["OpenAI Agents SDK"]
+    A --> T["Tools"]
+    T --> G["GitHub App"]
+    T --> W["Workspace and shell"]
+    T --> B["Slack Web API"]
+    A --> Q["AgentCore Web Search gateway"]
+    Q --> H["Public HTTPS pages"]
 ```
 
 The ingress validates Slack signatures and acknowledges events quickly. AgentCore keeps a thread session, runs the agent, and posts progress and replies back to Slack. GitHub credentials come from Secrets Manager and are exchanged for short-lived App tokens. The runtime and `/workspace` are ephemeral and last up to eight hours.

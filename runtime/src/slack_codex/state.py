@@ -196,7 +196,9 @@ class RuntimeState:
             await self._fallback(context)
             raise
 
-        if not context.replied and not context.waiting:
+        is_waiting = context.waiting and context.status == "waiting"
+        is_terminal = not context.waiting and context.status in {"done", "failed"}
+        if not context.replied or not (is_waiting or is_terminal):
             await self._fallback(context)
         return context
 

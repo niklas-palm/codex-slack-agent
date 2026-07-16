@@ -8,6 +8,7 @@ import pytest
 
 from slack_codex.models import (
     InvocationPayload,
+    ThreadStatus,
 )
 from slack_codex.models import (
     TestInvocationPayload as AgentCoreTestPayload,
@@ -50,6 +51,7 @@ class FakeRunner:
         self.active -= 1
         assert context.status == "working"
         context.replied = True
+        context.status = "done"
         assert max_turns == 1000
         assert hooks is not None
         return FakeResult(items, len(self.calls))
@@ -108,7 +110,17 @@ def make_state(tmp_path: Path, runner: FakeRunner) -> RuntimeState:
     )
 
 
-class SilentRunner(FakeRunner):
+class IncompleteRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        replied: bool = False,
+        status: ThreadStatus | None = None,
+    ) -> None:
+        super().__init__()
+        self._replied = replied
+        self._status = status
+
     async def run(
         self,
         agent: Any,
@@ -119,6 +131,9 @@ class SilentRunner(FakeRunner):
         hooks: Any,
     ) -> FakeResult:
         self.calls.append((agent, [*items]))
+        context.replied = self._replied
+        if self._status:
+            await set_thread_status_for_context(context, self._status)
         return FakeResult(items, len(self.calls))
 
 
@@ -210,7 +225,7 @@ def test_state_rejects_cross_session_reuse(tmp_path: Path) -> None:
 
 
 async def test_state_posts_red_fallback_when_agent_does_not_reply(tmp_path: Path) -> None:
-    state = make_state(tmp_path, SilentRunner())
+    state = make_state(tmp_path, IncompleteRunner())
 
     await state.run(payload("E1", "first"))
 
@@ -226,6 +241,31 @@ async def test_state_posts_red_fallback_when_agent_does_not_reply(tmp_path: Path
     assert client.added == [
         ("C1", "1.0", "large_yellow_circle"),
         ("C1", "2.0", "large_yellow_circle"),
+        ("C1", "1.0", "red_circle"),
+        ("C1", "2.0", "red_circle"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("replied", "status"),
+    [
+        (True, None),
+        (False, "done"),
+    ],
+)
+async def test_state_requires_both_reply_and_valid_final_status(
+    tmp_path: Path,
+    replied: bool,
+    status: ThreadStatus | None,
+) -> None:
+    state = make_state(tmp_path, IncompleteRunner(replied=replied, status=status))
+
+    await state.run(payload("E1", "first"))
+
+    client = state.slack_client
+    assert isinstance(client, FakeSlackClient)
+    assert len(client.posts) == 1
+    assert client.added[-2:] == [
         ("C1", "1.0", "red_circle"),
         ("C1", "2.0", "red_circle"),
     ]

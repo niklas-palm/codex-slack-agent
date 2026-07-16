@@ -20,9 +20,11 @@ Install:
 - GitHub CLI (`gh`), authenticated to the repository owner
 - `curl` and `jq`
 
-Create the target GitHub repository before continuing. The first deployment
-reads that repository's exact OIDC subject from GitHub, and the GitHub App in
-step 2 must be installed on it. CDK does not create the repository.
+Create the target GitHub repository and push this project to its `main` branch
+before continuing. The first deployment reads that repository's exact OIDC
+subject from GitHub, the GitHub App in step 2 must be installed on it, and the
+workflow must exist before it can establish the required `Test` check. CDK does
+not create or populate the repository.
 
 The target account must be able to use `openai.gpt-5.6-terra` through Bedrock
 in `us-east-1`.
@@ -401,8 +403,7 @@ gh api --method PUT \
   "allow_deletions": false,
   "block_creations": false,
   "required_conversation_resolution": true,
-  "lock_branch": false,
-  "allow_fork_syncing": true
+  "lock_branch": false
 }
 JSON
 ```

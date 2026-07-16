@@ -182,8 +182,6 @@ async function main(): Promise<void> {
   console.log(JSON.stringify(result, null, 2));
   if (args.check) {
     validateSmokeResult(result);
-  }
-  if (args.check) {
     console.log("AgentCore smoke checks passed.");
   }
 }

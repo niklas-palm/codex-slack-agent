@@ -210,8 +210,9 @@ async def list_directory(path: str = ".") -> dict[str, Any]:
         target = resolve_workspace_path(_workspace(), path, must_exist=True)
         if not target.is_dir():
             raise ValueError("path is not a directory")
+        items = sorted(target.iterdir(), key=lambda value: value.name)
         entries = []
-        for item in sorted(target.iterdir(), key=lambda value: value.name)[:MAX_RESULTS]:
+        for item in items[:MAX_RESULTS]:
             stat = item.stat()
             entries.append(
                 {
@@ -220,7 +221,7 @@ async def list_directory(path: str = ".") -> dict[str, Any]:
                     "size": stat.st_size if item.is_file() else None,
                 }
             )
-        return {"path": str(target), "entries": entries, "truncated": len(entries) == MAX_RESULTS}
+        return {"path": str(target), "entries": entries, "truncated": len(items) > MAX_RESULTS}
     except Exception as exc:
         return _error(exc)
 
@@ -237,9 +238,12 @@ async def glob_files(pattern: str, path: str = ".") -> dict[str, Any]:
             resolved = item.resolve()
             if resolved.is_file() and resolved.is_relative_to(_workspace()):
                 matches.append(str(resolved.relative_to(_workspace())))
-                if len(matches) >= MAX_RESULTS:
+                if len(matches) > MAX_RESULTS:
                     break
-        return {"matches": sorted(matches), "truncated": len(matches) == MAX_RESULTS}
+        return {
+            "matches": sorted(matches)[:MAX_RESULTS],
+            "truncated": len(matches) > MAX_RESULTS,
+        }
     except Exception as exc:
         return _error(exc)
 

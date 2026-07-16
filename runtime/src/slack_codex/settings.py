@@ -21,6 +21,8 @@ class Settings:
     github_app_credentials_secret_arn: str
     github_repository: str
     workspace: Path
+    web_search_gateway_url: str = "https://gateway.example"
+    web_search_gateway_region: str = "us-east-1"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -35,4 +37,9 @@ class Settings:
             ),
             github_repository=_required("GH_REPO"),
             workspace=Path(os.getenv("WORKSPACE_DIR", "/workspace")).resolve(),
+            web_search_gateway_url=_required("WEB_SEARCH_GATEWAY_URL"),
+            web_search_gateway_region=os.getenv(
+                "WEB_SEARCH_GATEWAY_REGION",
+                "us-east-1",
+            ),
         )

@@ -6,7 +6,11 @@ import {
   Stack,
   type StackProps,
 } from "aws-cdk-lib";
-import { CfnRuntime } from "aws-cdk-lib/aws-bedrockagentcore";
+import {
+  CfnGateway,
+  CfnGatewayTarget,
+  CfnRuntime,
+} from "aws-cdk-lib/aws-bedrockagentcore";
 import {
   HttpApi,
   HttpMethod,
@@ -38,6 +42,11 @@ export interface SlackCodexStackProps extends StackProps {
 export class SlackCodexStack extends Stack {
   constructor(scope: Construct, id: string, props: SlackCodexStackProps) {
     super(scope, id, props);
+    if (this.region !== "us-east-1" || props.bedrockRegion !== "us-east-1") {
+      throw new Error(
+        "SlackCodex must use us-east-1 because AgentCore Web Search is only available there.",
+      );
+    }
 
     const repositoryRoot = path.join(__dirname, "..", "..");
     const runtimeRoot = path.join(repositoryRoot, "runtime");
@@ -65,6 +74,78 @@ export class SlackCodexStack extends Stack {
       platform: Platform.LINUX_ARM64,
     });
 
+    const gatewayName = "slack-codex-web-search";
+    const gatewayArnPattern = this.formatArn({
+      service: "bedrock-agentcore",
+      resource: "gateway",
+      resourceName: `${gatewayName}-*`,
+    });
+    const gatewayServiceRole = new Role(this, "WebSearchGatewayRole", {
+      assumedBy: new ServicePrincipal("bedrock-agentcore.amazonaws.com", {
+        conditions: {
+          StringEquals: {
+            "aws:SourceAccount": this.account,
+          },
+          ArnLike: {
+            "aws:SourceArn": gatewayArnPattern,
+          },
+        },
+      }),
+      description: "Execution role for the Slack Codex web search Gateway",
+    });
+    gatewayServiceRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["bedrock-agentcore:InvokeGateway"],
+        resources: [gatewayArnPattern],
+      }),
+    );
+    gatewayServiceRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["bedrock-agentcore:InvokeWebSearch"],
+        resources: [
+          `arn:${this.partition}:bedrock-agentcore:${this.region}:aws:tool/web-search.v1`,
+        ],
+      }),
+    );
+
+    const webSearchGateway = new CfnGateway(this, "WebSearchGateway", {
+      name: gatewayName,
+      description: "IAM-protected MCP gateway for Amazon Bedrock AgentCore Web Search",
+      authorizerType: "AWS_IAM",
+      protocolType: "MCP",
+      protocolConfiguration: {
+        mcp: {
+          supportedVersions: ["2025-03-26"],
+        },
+      },
+      roleArn: gatewayServiceRole.roleArn,
+    });
+    const webSearchTarget = new CfnGatewayTarget(this, "WebSearchTarget", {
+      gatewayIdentifier: webSearchGateway.attrGatewayIdentifier,
+      name: "web-search",
+      targetConfiguration: {
+        mcp: {
+          connector: {
+            source: {
+              connectorId: "web-search",
+            },
+            configurations: [
+              {
+                name: "WebSearch",
+                parameterValues: {},
+              },
+            ],
+          },
+        },
+      },
+      credentialProviderConfigurations: [
+        {
+          credentialProviderType: "GATEWAY_IAM_ROLE",
+        },
+      ],
+    });
+    webSearchTarget.addDependency(webSearchGateway);
+
     const runtimeRole = new Role(this, "RuntimeRole", {
       assumedBy: new ServicePrincipal("bedrock-agentcore.amazonaws.com"),
       description: "Execution role for the Slack Codex AgentCore runtime",
@@ -81,6 +162,12 @@ export class SlackCodexStack extends Stack {
       new PolicyStatement({
         actions: ["bedrock-mantle:CreateInference"],
         resources: ["*"],
+      }),
+    );
+    runtimeRole.addToPolicy(
+      new PolicyStatement({
+        actions: ["bedrock-agentcore:InvokeGateway"],
+        resources: [webSearchGateway.attrGatewayArn],
       }),
     );
     runtimeRole.addToPolicy(
@@ -119,6 +206,8 @@ export class SlackCodexStack extends Stack {
         GITHUB_APP_CREDENTIALS_SECRET_ARN: githubAppCredentials.secretArn,
         GH_REPO: props.githubRepository,
         WORKSPACE_DIR: "/workspace",
+        WEB_SEARCH_GATEWAY_URL: webSearchGateway.attrGatewayUrl,
+        WEB_SEARCH_GATEWAY_REGION: this.region,
       },
       lifecycleConfiguration: {
         idleRuntimeSessionTimeout: 28_800,
@@ -130,6 +219,7 @@ export class SlackCodexStack extends Stack {
     if (defaultPolicy) {
       agentRuntime.node.addDependency(defaultPolicy);
     }
+    agentRuntime.node.addDependency(webSearchTarget);
 
     const lambdaLogGroup = new LogGroup(this, "SlackEventsLogGroup", {
       retention: RetentionDays.ONE_MONTH,
@@ -184,6 +274,12 @@ export class SlackCodexStack extends Stack {
     });
     new CfnOutput(this, "AgentRuntimeArn", {
       value: agentRuntime.attrAgentRuntimeArn,
+    });
+    new CfnOutput(this, "WebSearchGatewayArn", {
+      value: webSearchGateway.attrGatewayArn,
+    });
+    new CfnOutput(this, "WebSearchGatewayUrl", {
+      value: webSearchGateway.attrGatewayUrl,
     });
     new CfnOutput(this, "SlackSigningSecretArn", {
       value: signingSecret.secretArn,

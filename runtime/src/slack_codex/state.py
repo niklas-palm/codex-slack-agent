@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import subprocess
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agents import Agent, RunContextWrapper, RunHooks, Runner, TResponseInputItem
+from agents.mcp import MCPServer
 from agents.tool import Tool
 from openai import AsyncOpenAI
 
@@ -25,6 +27,7 @@ from slack_codex.settings import Settings
 from slack_codex.slack_client import SlackClient
 from slack_codex.test_slack_client import StubSlackClient
 from slack_codex.tools.slack_tools import set_thread_status_for_context
+from slack_codex.web_fetch import WebFetcher
 
 logger = logging.getLogger(__name__)
 MAX_PROCESSED_EVENTS = 1024
@@ -84,6 +87,9 @@ class RuntimeState:
     events: EventDeduplicator = field(default_factory=EventDeduplicator)
     session_id: str | None = None
     test_slack_client: StubSlackClient | None = None
+    web_fetcher: WebFetcher | None = None
+    web_search_server: MCPServer | None = None
+    started: bool = False
 
     @classmethod
     def create(cls, settings: Settings) -> RuntimeState:
@@ -98,13 +104,86 @@ class RuntimeState:
         settings.workspace.mkdir(parents=True, exist_ok=True)
         _configure_git()
 
-        openai_client, agent = build_agent(settings)
+        web_fetcher = WebFetcher()
+        openai_client, agent, web_search_server = build_agent(settings, web_fetcher)
         return cls(
             settings=settings,
             openai_client=openai_client,
             agent=agent,
             slack_client=SlackClient(slack_token),
+            web_fetcher=web_fetcher,
+            web_search_server=web_search_server,
         )
+
+    @classmethod
+    def create_local(cls, settings: Settings) -> RuntimeState:
+        """Build the real model and web tools without loading Slack or GitHub secrets."""
+
+        settings.workspace.mkdir(parents=True, exist_ok=True)
+        os.environ["GH_REPO"] = settings.github_repository
+        os.environ["WORKSPACE_DIR"] = str(settings.workspace)
+        web_fetcher = WebFetcher()
+        openai_client, agent, web_search_server = build_agent(settings, web_fetcher)
+        return cls(
+            settings=settings,
+            openai_client=openai_client,
+            agent=agent,
+            slack_client=StubSlackClient(),  # type: ignore[arg-type]
+            web_fetcher=web_fetcher,
+            web_search_server=web_search_server,
+        )
+
+    async def start(self) -> None:
+        if self.started:
+            return
+        if self.web_search_server is None:
+            raise RuntimeError("Web Search Gateway server is not configured")
+
+        try:
+            await self.web_search_server.connect()
+            tools = await self.web_search_server.list_tools()
+        except BaseException:
+            await self.web_search_server.cleanup()
+            raise
+        if not tools:
+            await self.web_search_server.cleanup()
+            raise RuntimeError("Web Search Gateway did not expose any tools")
+
+        self.started = True
+        logger.info(
+            "Connected Web Search Gateway with tools: %s",
+            ", ".join(tool.name for tool in tools),
+        )
+
+    async def close(self) -> None:
+        self.started = False
+        errors: list[BaseException] = []
+
+        if self.web_search_server is not None:
+            try:
+                await self.web_search_server.cleanup()
+            except BaseException as exc:
+                errors.append(exc)
+                logger.exception("Failed to close Web Search Gateway")
+        if self.web_fetcher is not None:
+            try:
+                await self.web_fetcher.close()
+            except BaseException as exc:
+                errors.append(exc)
+                logger.exception("Failed to close web fetcher")
+
+        close_client = getattr(self.openai_client, "close", None)
+        if callable(close_client):
+            try:
+                result = close_client()
+                if inspect.isawaitable(result):
+                    await result
+            except BaseException as exc:
+                errors.append(exc)
+                logger.exception("Failed to close Bedrock client")
+
+        if errors:
+            raise errors[0]
 
     def bind_session(self, session_id: str | None) -> None:
         if not session_id:

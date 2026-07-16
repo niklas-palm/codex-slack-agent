@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -17,21 +18,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = BedrockAgentCoreApp()
 _state: RuntimeState | None = None
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
 def get_state() -> RuntimeState:
-    global _state
     if _state is None:
-        _state = RuntimeState.create(Settings.from_env())
+        raise RuntimeError("Runtime state has not been initialized")
     return _state
 
 
 def set_state_for_testing(state: RuntimeState | None) -> None:
     global _state
     _state = state
+
+
+@asynccontextmanager
+async def lifespan(_app: BedrockAgentCoreApp):
+    global _state
+    if _state is not None:
+        raise RuntimeError("Runtime state was already initialized")
+
+    state = RuntimeState.create(Settings.from_env())
+    try:
+        await state.start()
+    except BaseException:
+        await state.close()
+        raise
+
+    _state = state
+    try:
+        yield
+    finally:
+        _state = None
+        await state.close()
+
+
+app = BedrockAgentCoreApp(lifespan=lifespan)
 
 
 @app.async_task
@@ -105,7 +128,6 @@ async def invoke_test(payload: dict[str, Any], context: Any) -> dict[str, Any]:
 
 
 def main() -> None:
-    get_state()
     app.run()
 
 

@@ -3,7 +3,8 @@
 This runbook creates the Slack and GitHub identities, deploys the AWS
 infrastructure, connects Slack to the public endpoint, and verifies the agent.
 
-The defaults are `us-east-1` and `openai.gpt-5.6-terra`.
+The defaults are `us-east-1` and `openai.gpt-5.6-terra`. The stack is fixed to
+`us-east-1`, because AgentCore managed Web Search is available only there.
 
 Complete the sections in order. In particular, create the Slack app without
 Event Subscriptions, deploy the stack, populate its secrets, and only then
@@ -167,6 +168,8 @@ prefix.
 Record these outputs:
 
 - `AgentRuntimeArn`
+- `WebSearchGatewayArn`
+- `WebSearchGatewayUrl`
 - `SlackEventsUrl`
 - `SlackSigningSecretArn`
 - `SlackBotTokenArn`
@@ -188,6 +191,8 @@ stack_output() {
 }
 
 export AGENT_RUNTIME_ARN="$(stack_output AgentRuntimeArn)"
+export WEB_SEARCH_GATEWAY_ARN="$(stack_output WebSearchGatewayArn)"
+export WEB_SEARCH_GATEWAY_URL="$(stack_output WebSearchGatewayUrl)"
 export SLACK_EVENTS_URL="$(stack_output SlackEventsUrl)"
 export SLACK_SIGNING_SECRET_ARN="$(stack_output SlackSigningSecretArn)"
 export SLACK_BOT_TOKEN_ARN="$(stack_output SlackBotTokenArn)"
@@ -273,6 +278,43 @@ For an interactive follow-up test, call `npm run invoke:test` twice with the
 same `--session` value. The second result should include the earlier messages
 in `slack.thread`, and files created by the first turn should remain available.
 
+Run the managed search and page-fetch assertion separately:
+
+```bash
+AWS_PROFILE="$AWS_PROFILE" \
+AWS_REGION="$AWS_REGION" \
+AGENT_RUNTIME_ARN="$AGENT_RUNTIME_ARN" \
+npm run test:e2e:web
+```
+
+It fails unless the agent calls both `web-search___WebSearch` and
+`fetch_webpage`, returns the AWS-documented 200-character query limit with an
+AWS docs URL, and completes the stub Slack turn with green status.
+
+For local model/Gateway iteration without loading any Slack or GitHub secrets:
+
+```bash
+cd ../runtime
+AWS_PROFILE="$AWS_PROFILE" \
+AWS_REGION="$AWS_REGION" \
+WEB_SEARCH_GATEWAY_URL="$WEB_SEARCH_GATEWAY_URL" \
+uv run slack-codex-local-test \
+  --prompt "Search for the AgentCore Web Search query limit, fetch the official AWS page, and reply with the answer."
+```
+
+The local command uses the same `RuntimeState`, function tools, Gateway MCP
+connection, and Bedrock provider as the runtime. Only Slack is stubbed.
+
+The normal test suite remains offline. To run the manual 24-site extraction
+probe without retaining page bodies:
+
+```bash
+RUN_LIVE_WEB_FETCH=1 uv run pytest tests/test_web_fetch_live.py -s
+```
+
+The probe prints each requested/final URL, outcome, title, extracted length,
+and truncation state; it requires at least 20 readable pages.
+
 ## 8. Connect Slack
 
 Slack signs its URL-verification request. Complete step 6 first; if the
@@ -340,6 +382,8 @@ Common failures:
 | Git clone returns 401/403 | App installation, repository selection, and Contents permission |
 | PR creation returns 403 | Pull requests read/write permission |
 | Follow-up lost context | Same Slack thread and an unexpired AgentCore session |
+| Runtime fails during startup | Check the `WebSearchGatewayUrl` output, runtime role `InvokeGateway` permission, and Gateway service-role logs |
+| Search works but a fetched page fails | The fetcher supports only public HTTPS server-rendered HTML/XHTML/plain text; JavaScript-only, private, oversized, and binary pages are rejected |
 
 To confirm the endpoint itself is reachable, an unsigned request should return
 HTTP 401:

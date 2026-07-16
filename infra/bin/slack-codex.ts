@@ -9,6 +9,11 @@ const region =
   app.node.tryGetContext("bedrockRegion") ??
   process.env.CDK_DEFAULT_REGION ??
   "us-east-1";
+if (region !== "us-east-1") {
+  throw new Error(
+    "SlackCodex must deploy in us-east-1 because AgentCore Web Search is only available there.",
+  );
+}
 const githubRepository = app.node.tryGetContext("githubRepository");
 const githubOidcSubject = app.node.tryGetContext("githubOidcSubject");
 

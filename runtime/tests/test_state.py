@@ -74,6 +74,41 @@ class FakeSlackClient:
         self.added.append(args)
 
 
+class FakeWebFetcher:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FakeMcpServer:
+    def __init__(self, tools: list[Any] | None = None, error: Exception | None = None) -> None:
+        self.tools = tools if tools is not None else [type("Tool", (), {"name": "WebSearch"})()]
+        self.error = error
+        self.connected = False
+        self.cleaned = False
+
+    async def connect(self) -> None:
+        self.connected = True
+        if self.error is not None:
+            raise self.error
+
+    async def list_tools(self) -> list[Any]:
+        return self.tools
+
+    async def cleanup(self) -> None:
+        self.cleaned = True
+
+
+class FakeOpenAIClient:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def payload(event_id: str, prompt: str) -> InvocationPayload:
     return InvocationPayload.model_validate(
         {
@@ -202,6 +237,38 @@ async def test_state_serializes_concurrent_turns(tmp_path: Path) -> None:
 
     assert runner.max_active == 1
     assert len(state.history) == 4
+
+
+async def test_state_connects_caches_and_closes_web_search_resources(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+    server = FakeMcpServer()
+    fetcher = FakeWebFetcher()
+    client = FakeOpenAIClient()
+    state.web_search_server = server  # type: ignore[assignment]
+    state.web_fetcher = fetcher  # type: ignore[assignment]
+    state.openai_client = client  # type: ignore[assignment]
+
+    await state.start()
+
+    assert state.started is True
+    assert server.connected is True
+    await state.close()
+    assert server.cleaned is True
+    assert fetcher.closed is True
+    assert client.closed is True
+
+
+async def test_state_fails_fast_when_web_search_cannot_start(tmp_path: Path) -> None:
+    state = make_state(tmp_path, FakeRunner())
+    server = FakeMcpServer(error=RuntimeError("gateway unavailable"))
+    state.web_search_server = server  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="gateway unavailable"):
+        await state.start()
+
+    assert state.started is False
+    assert server.cleaned is True
 
 
 def test_event_deduplicator_is_bounded() -> None:

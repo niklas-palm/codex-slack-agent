@@ -10,13 +10,16 @@ from agents import (
     set_tracing_disabled,
 )
 from agents.agent import ToolsToFinalOutputResult
+from agents.mcp import MCPServerStreamableHttp
 from agents.tool import FunctionToolResult
 from openai import AsyncOpenAI
 from openai.providers import bedrock
 
+from slack_codex.gateway_auth import AgentCoreGatewaySigV4Auth
 from slack_codex.models import InvocationContext
 from slack_codex.settings import Settings
 from slack_codex.tools import ALL_TOOLS
+from slack_codex.web_fetch import WebFetcher, build_web_tools
 
 
 def load_instructions() -> str:
@@ -46,16 +49,31 @@ def slack_tool_result_behavior(
     return ToolsToFinalOutputResult(is_final_output=False)
 
 
-def build_agent(settings: Settings) -> tuple[AsyncOpenAI, Agent]:
+def build_agent(
+    settings: Settings,
+    web_fetcher: WebFetcher,
+) -> tuple[AsyncOpenAI, Agent, MCPServerStreamableHttp]:
     client = AsyncOpenAI(provider=bedrock(region=settings.bedrock_region))
     set_default_openai_client(client, use_for_tracing=False)
     set_default_openai_api("responses")
     set_tracing_disabled(True)
+    gateway_url = settings.web_search_gateway_url.rstrip("/")
+    if not gateway_url.endswith("/mcp"):
+        gateway_url = f"{gateway_url}/mcp"
+    web_search_server = MCPServerStreamableHttp(
+        {
+            "url": gateway_url,
+            "auth": AgentCoreGatewaySigV4Auth(settings.web_search_gateway_region),
+        },
+        cache_tools_list=True,
+        name="web-search",
+    )
     agent = Agent(
         name="Codex",
         model=settings.model_id,
         instructions=load_instructions(),
-        tools=ALL_TOOLS,
+        tools=[*ALL_TOOLS, *build_web_tools(web_fetcher)],
+        mcp_servers=[web_search_server],
         tool_use_behavior=slack_tool_result_behavior,
     )
-    return client, agent
+    return client, agent, web_search_server

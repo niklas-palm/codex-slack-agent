@@ -15,6 +15,7 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import { DockerImageAsset, Platform } from "aws-cdk-lib/aws-ecr-assets";
 import {
   Effect,
+  ManagedPolicy,
   PolicyStatement,
   Role,
   ServicePrincipal,
@@ -67,6 +68,7 @@ export class SlackCodexStack extends Stack {
     const runtimeRole = new Role(this, "RuntimeRole", {
       assumedBy: new ServicePrincipal("bedrock-agentcore.amazonaws.com"),
       description: "Execution role for the Slack Codex AgentCore runtime",
+      managedPolicies: [ManagedPolicy.fromAwsManagedPolicyName("ReadOnlyAccess")],
     });
     image.repository.grantPull(runtimeRole);
     runtimeRole.addToPolicy(

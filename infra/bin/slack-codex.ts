@@ -43,7 +43,7 @@ const stack = new SlackCodexStack(app, "SlackCodex", {
   },
   bedrockRegion: region,
   modelId:
-    app.node.tryGetContext("bedrockModelId") ?? "openai.gpt-5.6-terra",
+    app.node.tryGetContext("bedrockModelId") ?? "openai.gpt-5.6-luna",
   githubRepository,
 });
 

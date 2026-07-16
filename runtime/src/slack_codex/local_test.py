@@ -30,7 +30,7 @@ def _arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model-id",
-        default=os.getenv("BEDROCK_MODEL_ID", "openai.gpt-5.6-terra"),
+        default=os.getenv("BEDROCK_MODEL_ID", "openai.gpt-5.6-luna"),
     )
     return parser.parse_args()
 

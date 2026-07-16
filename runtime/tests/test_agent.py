@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from agents import RunContextWrapper
 
 import slack_codex.agent as agent_module
@@ -50,9 +51,7 @@ def test_build_agent_registers_bedrock_client_before_agent(
     monkeypatch.setattr(
         agent_module,
         "set_default_openai_client",
-        lambda value, **kwargs: calls.append(
-            ("default_client", (value, kwargs))
-        ),
+        lambda value, **kwargs: calls.append(("default_client", (value, kwargs))),
     )
     monkeypatch.setattr(
         agent_module,
@@ -181,3 +180,17 @@ def test_terminal_slack_status_ends_the_agent_turn() -> None:
     assert agent_module.slack_tool_result_behavior(context, [working]).is_final_output is False
     assert agent_module.slack_tool_result_behavior(context, [done]).is_final_output is True
     assert agent_module.slack_tool_result_behavior(context, [question]).is_final_output is True
+
+
+@pytest.mark.parametrize(
+    ("prompt", "model_id"),
+    [
+        ("Please investigate this", "openai.gpt-5.6-luna"),
+        ("Please investigate this #terra", "openai.gpt-5.6-terra"),
+        ("Please investigate this #sol", "openai.gpt-5.6-sol"),
+        ("Please investigate this #TERRA", "openai.gpt-5.6-terra"),
+        ("Please investigate #solution", "openai.gpt-5.6-luna"),
+    ],
+)
+def test_model_for_parent_prompt(prompt: str, model_id: str) -> None:
+    assert agent_module.model_for_parent_prompt(prompt) == model_id

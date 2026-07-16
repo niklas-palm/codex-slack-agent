@@ -9,7 +9,7 @@ function synthesizeTemplate(): Template {
   const stack = new SlackCodexStack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
     bedrockRegion: "us-east-1",
-    modelId: "openai.gpt-5.6-terra",
+    modelId: "openai.gpt-5.6-luna",
     githubRepository: "owner/repository",
   });
   return Template.fromStack(stack);
@@ -32,7 +32,7 @@ describe("SlackCodexStack", () => {
       },
       EnvironmentVariables: Match.objectLike({
         BEDROCK_REGION: "us-east-1",
-        BEDROCK_MODEL_ID: "openai.gpt-5.6-terra",
+        BEDROCK_MODEL_ID: "openai.gpt-5.6-luna",
         GITHUB_APP_CREDENTIALS_SECRET_ARN: Match.anyValue(),
         GH_REPO: "owner/repository",
         WEB_SEARCH_GATEWAY_URL: Match.anyValue(),
@@ -181,7 +181,7 @@ describe("SlackCodexStack", () => {
         new SlackCodexStack(new App(), "WrongRegion", {
           env: { account: "123456789012", region: "us-west-2" },
           bedrockRegion: "us-west-2",
-          modelId: "openai.gpt-5.6-terra",
+          modelId: "openai.gpt-5.6-luna",
           githubRepository: "owner/repository",
         }),
     ).toThrow("us-east-1");

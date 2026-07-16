@@ -3,7 +3,7 @@
   "context": {
     "githubRepository": "OWNER/REPOSITORY",
     "githubOidcSubject": "repo:OWNER/REPOSITORY:ref:refs/heads/main",
-    "bedrockModelId": "openai.gpt-5.6-terra",
+    "bedrockModelId": "openai.gpt-5.6-luna",
     "bedrockRegion": "us-east-1"
   }
 }

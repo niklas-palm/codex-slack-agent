@@ -3,7 +3,7 @@
 This runbook creates the Slack and GitHub identities, deploys the AWS
 infrastructure, connects Slack to the public endpoint, and verifies the agent.
 
-The defaults are `us-east-1` and `openai.gpt-5.6-terra`. The stack is fixed to
+The defaults are `us-east-1` and `openai.gpt-5.6-luna`. The stack is fixed to
 `us-east-1`, because AgentCore managed Web Search is available only there.
 
 Complete the sections in order. In particular, create the Slack app without
@@ -27,7 +27,7 @@ subject from GitHub, the GitHub App in step 2 must be installed on it, and the
 workflow must exist before it can establish the required `Test` check. CDK does
 not create or populate the repository.
 
-The target account must be able to use `openai.gpt-5.6-terra` through Bedrock
+The target account must be able to use `openai.gpt-5.6-luna` through Bedrock
 in `us-east-1`.
 
 The AWS principal used for deployment needs permission to bootstrap and deploy
@@ -158,7 +158,7 @@ npm run deploy -- \
   -c githubRepository="$GITHUB_REPOSITORY" \
   -c githubOidcSubject="$GITHUB_OIDC_SUBJECT" \
   -c bedrockRegion=us-east-1 \
-  -c bedrockModelId=openai.gpt-5.6-terra
+  -c bedrockModelId=openai.gpt-5.6-luna
 ```
 
 Read the subject from GitHub rather than constructing it. Depending on the

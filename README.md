@@ -86,6 +86,8 @@ Concurrent mentions in one thread are serialized. No message or tool state is
 written to a database. The Agents SDK owns the agentic loop, with a 1,000-turn
 safety limit on each invocation.
 
+The model defaults to `openai.gpt-5.6-luna`. Include `#terra` or `#sol` in the initial parent message to select `openai.gpt-5.6-terra` or `openai.gpt-5.6-sol` for that thread. The selection is made when its runtime is created and remains fixed for follow-up messages.
+
 The `Agent` is reusable configuration, not a mutable conversation container.
 Conversation state therefore lives in a module-global history list beside the
 single `Agent` instance. The runtime does not rely on provider-side

@@ -33,11 +33,13 @@ MAX_PROCESSED_EVENTS = 1024
 class RuntimeHooks(RunHooks[InvocationContext]):
     async def on_tool_start(
         self,
-        _context: RunContextWrapper[InvocationContext],
+        context: RunContextWrapper[InvocationContext],
         _agent: Agent[InvocationContext],
         tool: Tool,
     ) -> None:
-        logger.info("Tool started: %s", tool.name)
+        count = context.context.tool_calls.get(tool.name, 0) + 1
+        context.context.tool_calls[tool.name] = count
+        logger.info("Tool started: %s call=%d", tool.name, count)
 
     async def on_tool_end(
         self,
@@ -184,7 +186,7 @@ class RuntimeState:
                 self.agent,
                 self.history,
                 context=context,
-                max_turns=100,
+                max_turns=1000,
                 hooks=RUNTIME_HOOKS,
             )
             self.history = result.to_input_list()

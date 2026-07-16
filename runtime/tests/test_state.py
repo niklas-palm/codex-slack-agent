@@ -50,7 +50,7 @@ class FakeRunner:
         self.active -= 1
         assert context.status == "working"
         context.replied = True
-        assert max_turns == 100
+        assert max_turns == 1000
         assert hooks is not None
         return FakeResult(items, len(self.calls))
 

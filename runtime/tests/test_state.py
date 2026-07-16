@@ -1,0 +1,276 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from slack_codex.models import (
+    InvocationPayload,
+)
+from slack_codex.models import (
+    TestInvocationPayload as AgentCoreTestPayload,
+)
+from slack_codex.settings import Settings
+from slack_codex.state import EventDeduplicator, RuntimeState
+from slack_codex.tools.slack_tools import set_thread_status_for_context
+
+
+class FakeResult:
+    def __init__(self, items: list[dict[str, Any]], turn: int) -> None:
+        self._items = [
+            *items,
+            {"role": "assistant", "content": f"answer-{turn}"},
+        ]
+
+    def to_input_list(self) -> list[dict[str, Any]]:
+        return self._items
+
+
+class FakeRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, list[dict[str, Any]]]] = []
+        self.active = 0
+        self.max_active = 0
+
+    async def run(
+        self,
+        agent: Any,
+        items: list[dict[str, Any]],
+        *,
+        context: Any,
+        max_turns: int,
+        hooks: Any,
+    ) -> FakeResult:
+        self.calls.append((agent, [*items]))
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        assert context.status == "working"
+        context.replied = True
+        assert max_turns == 100
+        assert hooks is not None
+        return FakeResult(items, len(self.calls))
+
+
+class FakeSlackClient:
+    def __init__(self) -> None:
+        self.posts: list[tuple[Any, ...]] = []
+        self.added: list[tuple[Any, ...]] = []
+        self.removed: list[tuple[Any, ...]] = []
+
+    async def post_message(self, *args: Any) -> str:
+        self.posts.append(args)
+        return "3.0"
+
+    async def remove_reaction(self, *args: Any) -> None:
+        self.removed.append(args)
+
+    async def add_reaction(self, *args: Any) -> None:
+        self.added.append(args)
+
+
+def payload(event_id: str, prompt: str) -> InvocationPayload:
+    return InvocationPayload.model_validate(
+        {
+            "source": "slack",
+            "event_id": event_id,
+            "prompt": prompt,
+            "slack": {
+                "team_id": "T1",
+                "channel_id": "C1",
+                "thread_ts": "1.0",
+                "trigger_message_ts": "2.0",
+                "slack_user_id": "U1",
+            },
+        }
+    )
+
+
+def make_state(tmp_path: Path, runner: FakeRunner) -> RuntimeState:
+    settings = Settings(
+        aws_region="us-east-1",
+        bedrock_region="us-east-1",
+        model_id="openai.gpt-5.6-terra",
+        slack_bot_token_secret_arn="slack",
+        github_app_credentials_secret_arn="github",
+        github_repository="owner/repo",
+        workspace=tmp_path,
+    )
+    return RuntimeState(
+        settings=settings,
+        openai_client=object(),  # type: ignore[arg-type]
+        agent=object(),
+        slack_client=FakeSlackClient(),  # type: ignore[arg-type]
+        runner=runner,
+    )
+
+
+class SilentRunner(FakeRunner):
+    async def run(
+        self,
+        agent: Any,
+        items: list[dict[str, Any]],
+        *,
+        context: Any,
+        max_turns: int,
+        hooks: Any,
+    ) -> FakeResult:
+        self.calls.append((agent, [*items]))
+        return FakeResult(items, len(self.calls))
+
+
+class FailingRunner(FakeRunner):
+    async def run(
+        self,
+        agent: Any,
+        items: list[dict[str, Any]],
+        *,
+        context: Any,
+        max_turns: int,
+        hooks: Any,
+    ) -> FakeResult:
+        raise RuntimeError("model failed")
+
+
+class StubReplyRunner(FakeRunner):
+    async def run(
+        self,
+        agent: Any,
+        items: list[dict[str, Any]],
+        *,
+        context: Any,
+        max_turns: int,
+        hooks: Any,
+    ) -> FakeResult:
+        self.calls.append((agent, [*items]))
+        await context.slack_client.post_message(
+            context.slack.channel_id,
+            context.slack.thread_ts,
+            f"reply-{len(self.calls)}",
+        )
+        context.replied = True
+        await set_thread_status_for_context(context, "done")
+        return FakeResult(items, len(self.calls))
+
+
+async def test_state_reuses_agent_and_complete_history(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+
+    await state.run(payload("E1", "first"))
+    await state.run(payload("E2", "second"))
+
+    assert runner.calls[0][0] is state.agent
+    assert runner.calls[1][0] is state.agent
+    assert runner.calls[1][1] == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "answer-1"},
+        {"role": "user", "content": "second"},
+    ]
+    database_files = await asyncio.to_thread(
+        lambda: [*tmp_path.rglob("*.db"), *tmp_path.rglob("*.sqlite*")]
+    )
+    assert not database_files
+
+
+async def test_state_serializes_concurrent_turns(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    state = make_state(tmp_path, runner)
+
+    await asyncio.gather(
+        state.run(payload("E1", "first")),
+        state.run(payload("E2", "second")),
+    )
+
+    assert runner.max_active == 1
+    assert len(state.history) == 4
+
+
+def test_event_deduplicator_is_bounded() -> None:
+    events = EventDeduplicator(max_size=2)
+    assert events.add("E1") is True
+    assert events.add("E1") is False
+    assert events.add("E2") is True
+    assert events.add("E3") is True
+    assert events.add("E1") is True
+
+
+def test_state_rejects_cross_session_reuse(tmp_path: Path) -> None:
+    state = make_state(tmp_path, FakeRunner())
+    state.bind_session("a" * 33)
+    try:
+        state.bind_session("b" * 33)
+    except RuntimeError as exc:
+        assert "already bound" in str(exc)
+    else:
+        raise AssertionError("expected cross-session reuse to fail")
+
+
+async def test_state_posts_red_fallback_when_agent_does_not_reply(tmp_path: Path) -> None:
+    state = make_state(tmp_path, SilentRunner())
+
+    await state.run(payload("E1", "first"))
+
+    client = state.slack_client
+    assert isinstance(client, FakeSlackClient)
+    assert client.posts == [
+        (
+            "C1",
+            "1.0",
+            ":warning: I couldn't finish that request. Please @codex me again to retry.",
+        )
+    ]
+    assert client.added == [
+        ("C1", "1.0", "large_yellow_circle"),
+        ("C1", "2.0", "large_yellow_circle"),
+        ("C1", "1.0", "red_circle"),
+        ("C1", "2.0", "red_circle"),
+    ]
+
+
+async def test_state_posts_red_fallback_when_agent_crashes(tmp_path: Path) -> None:
+    state = make_state(tmp_path, FailingRunner())
+
+    with pytest.raises(RuntimeError, match="model failed"):
+        await state.run(payload("E1", "first"))
+
+    client = state.slack_client
+    assert isinstance(client, FakeSlackClient)
+    assert len(client.posts) == 1
+    assert client.added[-1] == ("C1", "2.0", "red_circle")
+
+
+async def test_agentcore_test_mode_persists_stub_thread_and_history(
+    tmp_path: Path,
+) -> None:
+    runner = StubReplyRunner()
+    state = make_state(tmp_path, runner)
+    first = AgentCoreTestPayload(
+        source="test",
+        event_id="T1",
+        prompt="first",
+    )
+    second = AgentCoreTestPayload(
+        source="test",
+        event_id="T2",
+        prompt="second",
+    )
+
+    first_result = await state.run_test(first)
+    second_result = await state.run_test(second)
+
+    assert first_result["status"] == "completed"
+    assert first_result["thread_status"] == "done"
+    assert first_result["slack"]["posts"] == [{"text": "reply-1", "ts": "2.000000"}]
+    assert second_result["slack"]["posts"] == [{"text": "reply-2", "ts": "4.000000"}]
+    assert [
+        message["text"] for message in second_result["slack"]["thread"]
+    ] == ["first", "reply-1", "second", "reply-2"]
+    assert runner.calls[1][1] == [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "answer-1"},
+        {"role": "user", "content": "second"},
+    ]

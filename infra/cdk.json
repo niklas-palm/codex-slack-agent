@@ -1,0 +1,8 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/slack-codex.ts",
+  "context": {
+    "githubRepository": "OWNER/REPOSITORY",
+    "bedrockModelId": "openai.gpt-5.6-terra",
+    "bedrockRegion": "us-east-1"
+  }
+}

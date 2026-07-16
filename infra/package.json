@@ -1,0 +1,29 @@
+{
+  "name": "slack-codex-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "diff": "cdk diff",
+    "invoke:test": "ts-node scripts/invoke-test.ts",
+    "test:e2e": "ts-node scripts/invoke-test.ts --check --prompt 'Read the thread once. With run_bash, execute GH_TOKEN=\"$(github-app-token)\" gh repo view \"$GH_REPO\" --json nameWithOwner. Then create /workspace/agentcore-smoke.txt containing exactly AgentCore smoke test passed, verify it with read_file, reply with exactly AgentCore smoke test passed, and mark done.'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "^3.883.0",
+    "@aws-sdk/client-secrets-manager": "^3.883.0",
+    "aws-cdk-lib": "^2.254.0",
+    "constructs": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.152",
+    "@types/node": "^24.0.0",
+    "aws-cdk": "^2.1122.0",
+    "esbuild": "^0.25.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

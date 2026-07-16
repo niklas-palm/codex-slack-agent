@@ -1,0 +1,12 @@
+.env
+.env.*
+.venv
+*.key
+*.p12
+*.pem
+*.pfx
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+tests

@@ -203,28 +203,6 @@ async def edit_file(
         return _error(exc)
 
 
-@function_tool
-async def list_directory(path: str = ".") -> dict[str, Any]:
-    """List the immediate contents of a directory inside /workspace."""
-    try:
-        target = resolve_workspace_path(_workspace(), path, must_exist=True)
-        if not target.is_dir():
-            raise ValueError("path is not a directory")
-        items = sorted(target.iterdir(), key=lambda value: value.name)
-        entries = []
-        for item in items[:MAX_RESULTS]:
-            stat = item.stat()
-            entries.append(
-                {
-                    "name": item.name,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": stat.st_size if item.is_file() else None,
-                }
-            )
-        return {"path": str(target), "entries": entries, "truncated": len(items) > MAX_RESULTS}
-    except Exception as exc:
-        return _error(exc)
-
 
 @function_tool
 async def glob_files(pattern: str, path: str = ".") -> dict[str, Any]:
@@ -286,7 +264,6 @@ CODE_TOOLS = [
     read_file,
     write_file,
     edit_file,
-    list_directory,
     glob_files,
     grep_search,
 ]
